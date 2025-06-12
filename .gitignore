@@ -1,0 +1,15 @@
+# Python 仮想環境
+venv/
+
+# 環境変数ファイル
+.env
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# SQLite DB
+*.db
+
+# その他ログファイル等
+*.log
