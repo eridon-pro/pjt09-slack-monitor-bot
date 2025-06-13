@@ -1,4 +1,6 @@
 slack-bolt
 slack-sdk
 python-dotenv
+python-dateutil
 apscheduler
+openai
