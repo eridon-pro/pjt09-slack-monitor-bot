@@ -6,7 +6,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Default Model overwritten by .env file
-MODEL = "gpt-3.5-turbo"
+#MODEL = "gpt-3.5-turbo"
+MODEL = os.environ.get("OPENAI_MODEL", "gpt-3.5-turbo")
 
 # ポジティブフィードバック検出用キーワード
 POSITIVE_KEYWORDS = ["ありがとう", "感謝", "助かった", "すごい", "素晴らしい", "ナイス", "thanks", "thank you", "thx",]
@@ -77,14 +78,14 @@ def classify_text(text: str) -> dict:
             }
         ]
         create_args = {"model": MODEL, "messages": messages,}
-        logger.info(f"[LLM] classify_text req: '{text[:80]}'")
+        logger.info(f"[LLM: {MODEL}] classify_text req: '{text[:80]}'")
         # gpt-3.5-turbo 系で temperature=0 を使いたい場合
         if not MODEL.startswith("o4-"):
             create_args["temperature"] = 0
         
         resp = openai.chat.completions.create(**create_args)
         out = resp.choices[0].message.content.strip()
-        logger.info(f"[LLM] classify_text resp: '{out[:80]}'")
+        logger.info(f"[LLM: {MODEL}] classify_text resp: '{out[:80]}'")
         # 返り値例:
         # Yes
         # 3,5
@@ -148,10 +149,10 @@ def detect_positive_feedback(text: str) -> list[str]:
         if not MODEL.startswith("o4-"):
             create_args["temperature"] = 0
 
-        logger.info(f"[LLM] detect_positive_feedback req: '{text[:80]}'")
+        logger.info(f"[LLM: {MODEL}] detect_positive_feedback req: '{text[:80]}'")
         resp = openai.chat.completions.create(**create_args)
         content = resp.choices[0].message.content.strip()
-        logger.info(f"[LLM] detect_positive_feedback resp: '{content[:80]}'")
+        logger.info(f"[LLM: {MODEL}] detect_positive_feedback resp: '{content[:80]}'")
 
         # LLMが["Uxxxx"]の形で返す場合
         ids = json.loads(content)
@@ -197,8 +198,12 @@ def is_likely_answer(question: str, answer: str) -> bool:
         create_args = {"model": MODEL, "messages": messages}
         if not MODEL.startswith("o4-"):
             create_args["temperature"] = 0
+        
+        logger.info(f"[LLM: {MODEL}] is_likely_answer req: question='{question[:80]}', answer='{answer[:80]}'")
         resp = openai.chat.completions.create(**create_args)
         ans = resp.choices[0].message.content.strip().lower()
+        logger.info(f"[LLM: {MODEL}] is_likely_answer resp: '{ans[:80]}'")
+
         return ans.startswith("yes")
     # フォールバック
     return len(answer) >= 20

@@ -1,9 +1,15 @@
 import os
 import re
-import logging
 import sqlite3
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logger = logging.getLogger(__name__)
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -14,24 +20,8 @@ from slack_sdk.errors import SlackApiError
 import openai
 from utils.classifier import classify_text, detect_positive_feedback, is_likely_answer, POSITIVE_REACTIONS, RULES_MAP
 import utils.classifier as clf
-from utils.db import update_score
-
-import warnings
-# sqlite3 のデフォルト datetime アダプタ非推奨ワーニングだけを無視
-warnings.filterwarnings(
-    "ignore",
-    message="The default datetime adapter is deprecated",
-    category=DeprecationWarning,
-    module="sqlite3"
-)
-
-# ─── ログ設定 ─────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
-)
-logger = logging.getLogger(__name__)
+from utils.db import update_score, record_event, is_positive_reaction, cache_positive_reaction
+from utils.llm_judge import judge_positive_reaction, apply_all_positive_reactions
 
 # ─── 環境変数読み込み ───────────────────────────────────
 load_dotenv()
@@ -128,10 +118,10 @@ def notify_violation(user: str, text: str, channel: str, ts: str, rules: list[in
     )
 
 # ─── ランキング用ブロック生成 ─────────────────────────────────
-def build_scoreboard_blocks(period_name: str, since: datetime = None):
+def build_scoreboard_blocks(period_name: str, since: datetime = None, until: datetime = None):
     conn = sqlite3.connect('scores.db')
     cur  = conn.cursor()
-    if since:
+    if since and until:  # 期間指定の場合
         cur.execute(
             """
             SELECT user_id,
@@ -141,12 +131,32 @@ def build_scoreboard_blocks(period_name: str, since: datetime = None):
               SUM(CASE WHEN type='positive_feedback' THEN 1 ELSE 0 END) as pf,
               SUM(CASE WHEN type='violation'         THEN 1 ELSE 0 END) as vio
             FROM events
-            WHERE ts >= ?
+            WHERE ts_epoch >= ? AND ts_epoch < ?
             GROUP BY user_id
             ORDER BY (?*posts + ?*reactions + ?*answers + ?*pf + ?*vio) DESC
             LIMIT 5
             """, (
-                since,
+                since.timestamp(), until.timestamp(),  # 必要に応じてint化
+                WEIGHTS['post'], WEIGHTS['reaction'], WEIGHTS['answer'],
+                WEIGHTS['positive_feedback'], WEIGHTS['violation'],
+            )
+        )
+    elif since:
+        cur.execute(
+            """
+            SELECT user_id,
+              SUM(CASE WHEN type='post'              THEN 1 ELSE 0 END) as posts,
+              SUM(CASE WHEN type='reaction'          THEN 1 ELSE 0 END) as reactions,
+              SUM(CASE WHEN type='answer'            THEN 1 ELSE 0 END) as answers,
+              SUM(CASE WHEN type='positive_feedback' THEN 1 ELSE 0 END) as pf,
+              SUM(CASE WHEN type='violation'         THEN 1 ELSE 0 END) as vio
+            FROM events
+            WHERE ts_epoch >= ?
+            GROUP BY user_id
+            ORDER BY (?*posts + ?*reactions + ?*answers + ?*pf + ?*vio) DESC
+            LIMIT 5
+            """, (
+                since.timestamp(),
                 WEIGHTS['post'], WEIGHTS['reaction'], WEIGHTS['answer'],
                 WEIGHTS['positive_feedback'], WEIGHTS['violation'],
             )
@@ -173,7 +183,11 @@ def build_scoreboard_blocks(period_name: str, since: datetime = None):
 
     if period_name != '累計' and since:
         start = since.strftime('%Y/%m/%d %H:%M')
-        end   = datetime.now().strftime('%Y/%m/%d %H:%M')
+        # 期間指定なら until、rolling windowなら now
+        if until:
+            end = (until - timedelta(seconds=1)).strftime('%Y/%m/%d %H:%M')  # 終了日の「23:59」表現にする
+        else:
+            end = datetime.now().strftime('%Y/%m/%d %H:%M')
         header = f"🏅 {period_name}貢献度ランキング ({start}〜{end})"
     else:
         header = '⏱️ 貢献度ランキング(累計)'
@@ -207,19 +221,29 @@ def build_scoreboard_blocks(period_name: str, since: datetime = None):
 def parse_period(text: str):
     now = datetime.now()
     t = (text or '').strip().lower()
+
+    # --- YYYYMMDD-YYYYMMDD形式で期間指定 ---
+    m = re.match(r"(\d{8})-(\d{8})", t)
+    if m:
+        start = datetime.strptime(m.group(1), "%Y%m%d")
+        # 終了日を含めたい場合は1日足す
+        end   = datetime.strptime(m.group(2), "%Y%m%d") + timedelta(days=1)
+        period_name = f"{start.strftime('%Y/%m/%d')}〜{(end-timedelta(days=1)).strftime('%Y/%m/%d')}"
+        return period_name, start, end
+
     if t == 'daily':
-        return '日次', now - timedelta(days=1)
+        return '日次', now - timedelta(days=1), None
     if t == 'weekly':
-        return '週間', now - timedelta(days=7)
+        return '週間', now - timedelta(days=7), None
     if t == 'monthly':
-        return '月間', now - relativedelta(months=1)
-    if t == 'quarter':
-        return '四半期', now - relativedelta(months=3)
-    if t == 'half':
-        return '半期', now - relativedelta(months=6)
-    if t == 'year':
-        return '年間', now - relativedelta(years=1)
-    return '累計', None
+        return '月間', now - relativedelta(months=1), None
+    if t == 'quarterly':
+        return '四半期', now - relativedelta(months=3), None
+    if t == 'semiannual':
+        return '半期', now - relativedelta(months=6), None
+    if t == 'annual':
+        return '年間', now - relativedelta(years=1), None
+    return '累計', None, None
 
 # ─── メッセージ監視ハンドラ（新規・編集対応） ─────────────────
 @app.event("message")
@@ -252,6 +276,7 @@ def handle_message(event, client):
     if result.get('violation'):
         rules = result.get('rules', [])
         logger.info(f"message classify_text in #{cname} by @{uname} (ts={ts}): '{text}' -> {result}")
+        record_event(user_id, "violation", ts_epoch=ts)
         notify_violation(user_id, text, chan_id, ts, rules)
         update_score(user_id, violation=True)
         #logger.info(f"score updated: user=@{uname} field=violation channel=#{cname} ts={ts}")
@@ -269,6 +294,7 @@ def handle_message(event, client):
         logger.info(f"positive feedback detected in #{cname}: targets={name_list} text='{text}'")
         for tgt in set(targets):
             if tgt != user_id:
+                record_event(tgt, "positive_feedback", ts_epoch=ts)
                 update_score(tgt, positive_feedback=True)
                 tname = resolve_user(tgt)
                 logger.info(f"score updated: user=@{tname} field=positive_feedback channel=#{cname} ts={ts}")
@@ -293,15 +319,18 @@ def handle_message(event, client):
         # 自己返信ならpost、それ以外は回答 or post
         #if user_id != parent_user and is_likely_answer(raw_text):
         if user_id != parent_user and is_likely_answer(parent.get('text',''), raw_text):
+            record_event(user_id, "answer", ts_epoch=ts)
             update_score(user_id, answer=True)
             logger.info(f"score updated: user=@{uname} field=answer channel=#{cname} ts={ts}")
         else:
+            record_event(user_id, "post", ts_epoch=ts)
             update_score(user_id, post=True)
             logger.info(f"score updated: user=@{uname} field=post channel=#{cname} ts={ts}")
         return
 
     # 4. 通常投稿
     logger.info(f"message classify_text in #{cname} by @{uname} (ts={ts}): '{text}' -> {result}")
+    record_event(user_id, "post", ts_epoch=ts)
     update_score(user_id, post=True)
     logger.info(f"score updated: user=@{uname} field=post channel=#{cname} ts={ts}")
 
@@ -315,29 +344,64 @@ def handle_reaction(event, client):
     reaction   = event.get('reaction')
     reactor_id = event.get('user')
     author_id  = event.get('item_user')  # event.item_user に投稿者 ID があるので、API 呼び出し不要
-    if not author_id:
+    ts_epoch   = float(ts) if ts else None
+
+    if not author_id:  # auther_idがない場合は無視
         return
 
-    # セルフリアクションは無視
-    if reactor_id == author_id:
+    if reactor_id == author_id:  # セルフリアクションは無視
         return
 
     author_name  = resolve_user(author_id)
     reactor_name = resolve_user(reactor_id)
     chan_name    = resolve_channel(chan_id)
 
-    # POSITIVE_REACTIONS に含まれる絵文字なら reaction を加点
+    #logger.info(f"handle_reaction: author_id={author_id}, reactor_id={reactor_id}, reaction={reaction}, ts_epoch={ts_epoch}")  # Debug
+
+    # 1. すべてのリアクションをDB eventsに記録（加点せず記録のみ！）
+    record_event(
+        user_id=author_id,
+        event_type="reaction",
+        ts_epoch=ts_epoch,
+        reactor_id=reactor_id,
+        reaction_name=reaction
+    )
+
+    # 2. POSITIVE_REACTIONS またはポジティブとしてキャッシュ済みにマッチしたときのみ加点（マッチしなかったものは日次でLLMよる判定と判定結果に基づいた加点を行う）
     if reaction in POSITIVE_REACTIONS:
         update_score(author_id, reaction=True)
         logger.info(
             f"reaction_added: {reactor_name} reacted '{reaction}' to "
-            f"{author_name}'s message in #{chan_name} (ts={ts}); counted as reaction"
+            f"{author_name}'s message in #{chan_name} (ts={ts}); counted as reaction (STATIC POSITIVE)"
         )
-    else: #POSITIVE_REACTIONS に含まれなくてもログ出力
+    elif is_positive_reaction(reaction):
+        update_score(author_id, reaction=True)
         logger.info(
             f"reaction_added: {reactor_name} reacted '{reaction}' to "
-            f"{author_name}'s message in #{chan_name} (ts={ts}); ignored"
+            f"{author_name}'s message in #{chan_name} (ts={ts}); counted as reaction (CACHED POSITIVE)"
+        )        
+    else:  # ポジティブ未定義のreactionがきたらログに出すだけ。（即時LLM判定する場合はelse以下は不要）
+        logger.info(
+            f"reaction_added: {reactor_name} reacted '{reaction}' to "
+            f"{author_name}'s message in #{chan_name} (ts={ts}); recorded only (will be judged in batch)"
         )
+    """
+    # ここからLLM判定スイッチ
+    USE_LLM_REACTION = True  # FalseならPOSITIVE_REACTIONSのみ参照
+    elif USE_LLM_REACTION:
+        is_pos = is_positive_reaction(reaction)  # キャッシュ参照
+        if is_pos is None:  # キャッシュがなければ、judge_positive_reactionでLLM判定し、キャッシュへ
+            is_pos = judge_positive_reaction(reaction)
+            cache_positive_reaction(reaction, is_pos)
+        if is_pos:
+            update_score(author_id, reaction=True)
+            logger.info(f"reaction_added (LLM): '{reaction}' judge:positive, {reactor_name} reacted '{reaction}' to {author_name}'s message in #{chan_name} (ts={ts}); counted as reaction")
+        else:
+            logger.info(f"reaction_added (LLM): '{reaction}' judge:not_positive, {reactor_name} reacted '{reaction}' to {author_name}'s message in #{chan_name} (ts={ts}); NOT counted as reaction")
+    else:
+        # LLM未使用: eventsへの記録のみ
+        logger.info(f"reaction_added: {reactor_name} reacted '{reaction}' to {author_name}'s message in #{chan_name} (ts={ts}); no LLM check (no score change)")
+    """
 
 # ─── reaction削除ハンドラ ───────────────────────────
 @app.event('reaction_removed')
@@ -353,11 +417,32 @@ def show_scoreboard(ack, body, respond):
     if user_chan != ADMIN_CHANNEL:
         respond(f"このコマンドは <#{ADMIN_CHANNEL}> でのみ使用できます。")
         return
-    period_name, since = parse_period(body.get('text',''))
-    blocks = build_scoreboard_blocks(period_name, since)
+    #period_name, since = parse_period(body.get('text',''))
+    period_name, since, until = parse_period(body.get('text',''))
+    #print(f"[DEBUG] since={since} ({since.timestamp() if since else None}) until={until} ({until.timestamp() if until else None})")  ## Debug
+    #blocks = build_scoreboard_blocks(period_name, since)
+    blocks = build_scoreboard_blocks(period_name, since, until)
     respond(blocks=blocks)
     uname = resolve_user(body['user_id'])
     logger.info(f"/scoreboard executed: period={period_name} user=@{uname}")
+
+# ─── /apply_reactions コマンドハンドラ ──────────────────────
+@app.command("/apply_reactions")
+def handle_apply_reactions(ack, body, respond, logger):
+    ack()
+    user_chan = body.get('channel_id')
+    if user_chan != ADMIN_CHANNEL:
+        respond(f"このコマンドは <#{ADMIN_CHANNEL}> でのみ使用できます。")
+        return
+
+    user_id = body.get("user_id")
+    try:
+        apply_all_positive_reactions()
+        respond(f"<@{user_id}> 未知のポジティブリアクションのLLM判定・加点を実行しました。")
+        logger.info(f"/apply_reactions executed by {user_id}")
+    except Exception as e:
+        respond(f"エラー: {e}")
+        logger.error(f"/apply_reactions failed: {e}")
 
 # ─── 定期ジョブ設定 ─────────────────────────────────
 def post_periodic(period_name, since):
@@ -372,9 +457,10 @@ scheduler.add_job(lambda: post_periodic('月間', datetime.now() - relativedelta
 scheduler.add_job(lambda: post_periodic('四半期', datetime.now() - relativedelta(months=3)), 'cron', month='1,4,7,10', day=1, hour=9, minute=0)
 scheduler.add_job(lambda: post_periodic('半期', datetime.now() - relativedelta(months=6)), 'cron', month='1,7', day=1, hour=9, minute=0)
 scheduler.add_job(lambda: post_periodic('年間', datetime.now() - relativedelta(years=1)), 'cron', month='1', day=1, hour=9, minute=0)
+scheduler.add_job(apply_all_positive_reactions, 'cron', hour=0, minute=10)
 scheduler.start()
 
 if __name__ == '__main__':
-    import db_init
+    #import db_init
     handler = SocketModeHandler(app, SLACK_APP_TOKEN)
     handler.start()
