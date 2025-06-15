@@ -1,10 +1,6 @@
 # pjt09-slack-monitor-bot
 Development of Bot to monitor comments in Slack.
 
-# pjt09-slack-monitor-bot
-
-Development of Bot to monitor comments in Slack.
-
 ---
 
 ## 要件定義・設計
