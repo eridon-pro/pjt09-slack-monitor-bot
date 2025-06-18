@@ -1,6 +1,8 @@
+# ─── Standard library imports ─────────────
 import os
 import re
 import sqlite3
+import time
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 import logging
@@ -11,81 +13,51 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-from slack_bolt import App
-from slack_bolt.adapter.socket_mode import SocketModeHandler
-from apscheduler.schedulers.background import BackgroundScheduler
+# ─── Dotenv load ─────────────
 from dotenv import load_dotenv
-from slack_sdk.errors import SlackApiError
-
-import openai
-from utils.classifier import classify_text, detect_positive_feedback, is_likely_answer, POSITIVE_REACTIONS, RULES_MAP
-import utils.classifier as clf
-from utils.db import update_score, record_event, is_positive_reaction, cache_positive_reaction
-from utils.llm_judge import judge_positive_reaction, apply_all_positive_reactions
-
-# ─── 環境変数読み込み ───────────────────────────────────
 load_dotenv()
+
+# ─── Environment variable reads ─────────────
 SLACK_BOT_TOKEN  = os.getenv("SLACK_BOT_TOKEN")
 SLACK_APP_TOKEN  = os.getenv("SLACK_APP_TOKEN")
 ADMIN_CHANNEL    = os.getenv("ADMIN_CHANNEL")
 QUESTION_CHANNEL = os.getenv("QUESTION_CHANNEL")
+BOT_DEV_CHANNEL  = os.getenv("BOT_DEV_CHANNEL")
+
+# ─── Database path ─────────────
+DB_PATH = os.getenv("SCORES_DB_PATH", "scores.db")
+# ─── Scoreboard Top-N ─────────────
+TOP_N = int(os.getenv("TOP_N", "5"))
+
+# openai, clf env assignment
+import openai
 openai.api_key   = os.getenv("OPENAI_API_KEY")
+import utils.classifier as clf
 clf.MODEL        = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
 
-if not all([SLACK_BOT_TOKEN, SLACK_APP_TOKEN, ADMIN_CHANNEL, QUESTION_CHANNEL]):
+# ─── Third-party imports ─────────────
+from slack_bolt import App
+from slack_bolt.adapter.socket_mode import SocketModeHandler
+from apscheduler.schedulers.background import BackgroundScheduler
+from slack_sdk.errors import SlackApiError
+
+# ─── Utils imports ─────────────
+from utils.constants import WEIGHTS
+from utils.slack_helpers import resolve_user, resolve_channel, humanize_mentions
+from utils.classifier import classify_text, detect_positive_feedback, is_likely_answer, POSITIVE_REACTIONS, RULES_MAP
+from utils.db import update_score, record_event, is_positive_reaction, cache_positive_reaction, mark_reaction_scored
+from utils.llm_judge import judge_positive_reaction, apply_all_positive_reactions
+from utils.scoring import fetch_user_counts, compute_score
+from publish_master_upsert import publish_today_only, publish_all_periods
+from utils.scoring import fetch_user_counts
+from violation_trends import main as run_violation_trends
+
+if not all([SLACK_BOT_TOKEN, SLACK_APP_TOKEN, ADMIN_CHANNEL, QUESTION_CHANNEL, BOT_DEV_CHANNEL]):
     logger.error("必要な環境変数が設定されていません。")
     exit(1)
 
 # ─── Bolt アプリ初期化 ─────────────────────────────────
 app = App(token=SLACK_BOT_TOKEN)
-
-# ─── スコア重み付け設定 ─────────────────────────────────
-WEIGHTS = {
-    'post': 1.0,
-    'reaction': 0.5,
-    'answer': 3.0,
-    'positive_feedback': 3.0,
-    'violation': -5.0,
-}
-
-# ─── キャッシュ用辞書 ─────────────────────────────────
-USER_CACHE = {}
-CHANNEL_CACHE = {}
-
-# ─── 名前解決ヘルパー ─────────────────────────────────
-def resolve_user(user_id: str) -> str:
-    if user_id in USER_CACHE:
-        return USER_CACHE[user_id]
-    try:
-        res = app.client.users_info(user=user_id)
-        profile = res['user']['profile']
-        name = profile.get('display_name') or res['user']['name']
-    except SlackApiError:
-        name = user_id
-    USER_CACHE[user_id] = name
-    return name
-
-def resolve_channel(channel_id: str) -> str:
-    if channel_id in CHANNEL_CACHE:
-        return CHANNEL_CACHE[channel_id]
-    try:
-        res = app.client.conversations_info(channel=channel_id)
-        name = res['channel']['name']
-    except SlackApiError:
-        name = channel_id
-    CHANNEL_CACHE[channel_id] = name
-    return name
-
-# ─── 複数メンションを名前に変換 ─────────────────────────
-def humanize_mentions(text: str) -> str:
-    def repl(match):
-        uid = match.group(1)
-        try:
-            uname = resolve_user(uid)
-        except SlackApiError:
-            uname = uid
-        return f"@{uname}"
-    return re.sub(r"<@([UW][A-Z0-9]+)>", repl, text)
 
 # ─── ガイドライン違反通知関数 ────────────────────────────────────────
 #def notify_violation(user: str, text: str, channel: str, ts: str):
@@ -112,102 +84,43 @@ def notify_violation(user: str, text: str, channel: str, ts: str, rules: list[in
     #logger.info(f"notification sent: violation user=@{username} channel=#{chan_name} ts={ts}")
     # ルール番号リストを文字列化
     rules_str = ",".join(str(n) for n in rules) if rules else "None"
-    logger.info(
-        f"notification sent: violation user=@{username} channel=#{chan_name} ts={ts} "
-        f"rules=[{rules_str}]"
-    )
+    logger.info(f"notification sent: violation user=@{username} channel=#{chan_name} ts={ts} rules=[{rules_str}]")
 
 # ─── ランキング用ブロック生成 ─────────────────────────────────
 def build_scoreboard_blocks(period_name: str, since: datetime = None, until: datetime = None):
-    conn = sqlite3.connect('scores.db')
-    cur  = conn.cursor()
-    if since and until:  # 期間指定の場合
-        cur.execute(
-            """
-            SELECT user_id,
-              SUM(CASE WHEN type='post'              THEN 1 ELSE 0 END) as posts,
-              SUM(CASE WHEN type='reaction'          THEN 1 ELSE 0 END) as reactions,
-              SUM(CASE WHEN type='answer'            THEN 1 ELSE 0 END) as answers,
-              SUM(CASE WHEN type='positive_feedback' THEN 1 ELSE 0 END) as pf,
-              SUM(CASE WHEN type='violation'         THEN 1 ELSE 0 END) as vio
-            FROM events
-            WHERE ts_epoch >= ? AND ts_epoch < ?
-            GROUP BY user_id
-            ORDER BY (?*posts + ?*reactions + ?*answers + ?*pf + ?*vio) DESC
-            LIMIT 5
-            """, (
-                since.timestamp(), until.timestamp(),  # 必要に応じてint化
-                WEIGHTS['post'], WEIGHTS['reaction'], WEIGHTS['answer'],
-                WEIGHTS['positive_feedback'], WEIGHTS['violation'],
-            )
-        )
-    elif since:
-        cur.execute(
-            """
-            SELECT user_id,
-              SUM(CASE WHEN type='post'              THEN 1 ELSE 0 END) as posts,
-              SUM(CASE WHEN type='reaction'          THEN 1 ELSE 0 END) as reactions,
-              SUM(CASE WHEN type='answer'            THEN 1 ELSE 0 END) as answers,
-              SUM(CASE WHEN type='positive_feedback' THEN 1 ELSE 0 END) as pf,
-              SUM(CASE WHEN type='violation'         THEN 1 ELSE 0 END) as vio
-            FROM events
-            WHERE ts_epoch >= ?
-            GROUP BY user_id
-            ORDER BY (?*posts + ?*reactions + ?*answers + ?*pf + ?*vio) DESC
-            LIMIT 5
-            """, (
-                since.timestamp(),
-                WEIGHTS['post'], WEIGHTS['reaction'], WEIGHTS['answer'],
-                WEIGHTS['positive_feedback'], WEIGHTS['violation'],
-            )
-        )
-    else:
-        cur.execute(
-            """
-            SELECT user_id,
-               post_count as posts,
-               reaction_count as reactions,
-               answer_count as answers,
-               positive_feedback_count as pf,
-               violation_count as vio
-            FROM user_scores
-            ORDER BY (?*posts + ?*reactions + ?*answers + ?*pf + ?*vio) DESC
-            LIMIT 5
-            """, (
-                WEIGHTS['post'], WEIGHTS['reaction'], WEIGHTS['answer'],
-                WEIGHTS['positive_feedback'], WEIGHTS['violation'],
-            )
-        )
-    rows = cur.fetchall()
-    conn.close()
+    # ── fetch_user_counts で集計 ───────────────────────────────────
+    db_path  = DB_PATH
+    since_ts = since.timestamp() if since else 0.0
+    until_ts = until.timestamp() if until else time.time()
+    # 返り値: [(user_id, posts, reactions, answers, positive_fb, violations, score), ...]
+    rows = fetch_user_counts(db_path, since_ts, until_ts, limit=TOP_N)
 
-    if period_name != '累計' and since:
+    if since and until:
+        # Explicit date-range specified by user (YYYYMMDD-YYYYMMDD)
         start = since.strftime('%Y/%m/%d %H:%M')
-        # 期間指定なら until、rolling windowなら now
-        if until:
-            end = (until - timedelta(seconds=1)).strftime('%Y/%m/%d %H:%M')  # 終了日の「23:59」表現にする
-        else:
-            end = datetime.now().strftime('%Y/%m/%d %H:%M')
-        header = f"🏅 {period_name}貢献度ランキング ({start}〜{end})"
+        end = (until - timedelta(seconds=1)).strftime('%Y/%m/%d %H:%M')
+        header = f"🏅 貢献度ランキング (期間 {start}〜{end})"
+    elif since and not until:
+        # Rolling window (日次, 週間, etc.) - show explicit period
+        start_str = since.strftime('%Y/%m/%d %H:%M')
+        end_str = datetime.now().strftime('%Y/%m/%d %H:%M')
+        header = f"🏅 {period_name}貢献度ランキング (期間 {start_str}〜{end_str})"
     else:
-        header = '⏱️ 貢献度ランキング(累計)'
+        # Cumulative over all time
+        start_str = start_dt.strftime('%Y/%m/%d %H:%M')
+        end_str = end_dt.strftime('%Y/%m/%d %H:%M')
+        header = f'⏱️ 貢献度ランキング(全期間 {start_str}〜{end_str})'
 
     blocks = [{"type": "header", "text": {"type": "plain_text", "text": header}}]
     if not rows:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "該当ユーザーがいません。"}})
         return blocks
 
-    for i, (uid, posts, reacts, answers, pf, vio) in enumerate(rows, start=1):
-        score = (
-            WEIGHTS['post'] * posts +
-            WEIGHTS['reaction'] * reacts +
-            WEIGHTS['answer'] * answers +
-            WEIGHTS['positive_feedback'] * pf +
-            WEIGHTS['violation'] * vio
-        )
+    for i, (uid, posts, reacts, answers, pf, vio, score) in enumerate(rows, start=1):
         uname = resolve_user(uid)
         text = (
-            f"*{i}.* @{uname}  *Score: {score:.1f}*\n"
+            #f"*{i}.* @{uname}  *Score: {score:.1f}*\n"
+            f"*{i}.* <@{uid}>  *Score: {score:.1f}*\n"
             f" • 投稿数: {posts}\n"
             f" • 獲得リアクション: {reacts}\n"
             f" • 回答数: {answers}\n"
@@ -231,6 +144,9 @@ def parse_period(text: str):
         period_name = f"{start.strftime('%Y/%m/%d')}〜{(end-timedelta(days=1)).strftime('%Y/%m/%d')}"
         return period_name, start, end
 
+    if t == 'today':  # 本日の0:00から現在まで
+        start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        return '本日の', start, None
     if t == 'daily':
         return '日次', now - timedelta(days=1), None
     if t == 'weekly':
@@ -275,16 +191,14 @@ def handle_message(event, client):
     result = classify_text(raw_text)
     if result.get('violation'):
         rules = result.get('rules', [])
+        # ルールIDリストをカンマ区切り文字列に
+        rules_str = ",".join(str(n) for n in rules) if rules else None
         logger.info(f"message classify_text in #{cname} by @{uname} (ts={ts}): '{text}' -> {result}")
-        record_event(user_id, "violation", ts_epoch=ts)
+        record_event(user_id=user_id, event_type="violation", ts_epoch=ts, violation_rule=rules_str)
         notify_violation(user_id, text, chan_id, ts, rules)
         update_score(user_id, violation=True)
         #logger.info(f"score updated: user=@{uname} field=violation channel=#{cname} ts={ts}")
-        logger.info(
-            f"score updated: user=@{uname} field=violation channel=#{cname} ts={ts}"
-            #+ (f" rules={result.get('rules')}" if result.get('rules') else "")
-            + (f" rules={rules}" if rules else "")
-        )
+        logger.info(f"score updated: user=@{uname} field=violation channel=#{cname} ts={ts}{f' rules={rules}' if rules else ''}")
         return
 
     # 2. ポジティブフィードバック検出
@@ -302,10 +216,7 @@ def handle_message(event, client):
 
     # 3. スレッド返信の回答判定（親投稿の作者と同じなら自己返信としてpost扱い）
     if chan_id == QUESTION_CHANNEL and event.get('thread_ts') and event['thread_ts'] != ts:
-        logger.info(
-            f"message classify_text in #{cname} by @{uname} (ts={ts}) "
-            f"(thread reply): '{text}' -> {result}"
-        )
+        logger.info(f"message classify_text in #{cname} by @{uname} (ts={ts}) (thread reply): '{text}' -> {result}")
         parent_ts = event['thread_ts']
         try:
             parent = app.client.conversations_replies(
@@ -359,7 +270,7 @@ def handle_reaction(event, client):
     #logger.info(f"handle_reaction: author_id={author_id}, reactor_id={reactor_id}, reaction={reaction}, ts_epoch={ts_epoch}")  # Debug
 
     # 1. すべてのリアクションをDB eventsに記録（加点せず記録のみ！）
-    record_event(
+    evt_id = record_event(
         user_id=author_id,
         event_type="reaction",
         ts_epoch=ts_epoch,
@@ -370,21 +281,14 @@ def handle_reaction(event, client):
     # 2. POSITIVE_REACTIONS またはポジティブとしてキャッシュ済みにマッチしたときのみ加点（マッチしなかったものは日次でLLMよる判定と判定結果に基づいた加点を行う）
     if reaction in POSITIVE_REACTIONS:
         update_score(author_id, reaction=True)
-        logger.info(
-            f"reaction_added: {reactor_name} reacted '{reaction}' to "
-            f"{author_name}'s message in #{chan_name} (ts={ts}); counted as reaction (STATIC POSITIVE)"
-        )
+        mark_reaction_scored(evt_id)
+        logger.info(f"reaction_added: {reactor_name} reacted '{reaction}' to {author_name}'s message in #{chan_name} (ts={ts}); counted as reaction (STATIC POSITIVE)")
     elif is_positive_reaction(reaction):
         update_score(author_id, reaction=True)
-        logger.info(
-            f"reaction_added: {reactor_name} reacted '{reaction}' to "
-            f"{author_name}'s message in #{chan_name} (ts={ts}); counted as reaction (CACHED POSITIVE)"
-        )        
+        mark_reaction_scored(evt_id)
+        logger.info(f"reaction_added: {reactor_name} reacted '{reaction}' to {author_name}'s message in #{chan_name} (ts={ts}); counted as reaction (CACHED POSITIVE)")
     else:  # ポジティブ未定義のreactionがきたらログに出すだけ。（即時LLM判定する場合はelse以下は不要）
-        logger.info(
-            f"reaction_added: {reactor_name} reacted '{reaction}' to "
-            f"{author_name}'s message in #{chan_name} (ts={ts}); recorded only (will be judged in batch)"
-        )
+        logger.info(f"reaction_added: {reactor_name} reacted '{reaction}' to {author_name}'s message in #{chan_name} (ts={ts}); recorded only (will be judged in batch)")
     """
     # ここからLLM判定スイッチ
     USE_LLM_REACTION = True  # FalseならPOSITIVE_REACTIONSのみ参照
@@ -439,25 +343,39 @@ def handle_apply_reactions(ack, body, respond, logger):
     try:
         apply_all_positive_reactions()
         respond(f"<@{user_id}> 未知のポジティブリアクションのLLM判定・加点を実行しました。")
-        logger.info(f"/apply_reactions executed by {user_id}")
+        uname = resolve_user(body['user_id'])
+        logger.info(f"/apply_reactions executed by user=@{uname}")
     except Exception as e:
         respond(f"エラー: {e}")
         logger.error(f"/apply_reactions failed: {e}")
 
 # ─── 定期ジョブ設定 ─────────────────────────────────
-def post_periodic(period_name, since):
+def post_periodic(period_name, since, channel=ADMIN_CHANNEL):
     blocks = build_scoreboard_blocks(period_name, since)
-    app.client.chat_postMessage(channel=ADMIN_CHANNEL, blocks=blocks)
+    app.client.chat_postMessage(channel=channel, blocks=blocks)
     logger.info(f"periodic post: period={period_name}")
 
 scheduler = BackgroundScheduler()
 scheduler.add_job(lambda: post_periodic('日次', datetime.now() - timedelta(days=1)), 'cron', hour=0, minute=0)
 scheduler.add_job(lambda: post_periodic('週間', datetime.now() - timedelta(days=7)), 'cron', day_of_week='mon', hour=9, minute=0)
 scheduler.add_job(lambda: post_periodic('月間', datetime.now() - relativedelta(months=1)), 'cron', day=1, hour=9, minute=0)
+# 「今月の貢献者紹介」機能
+scheduler.add_job(lambda: post_periodic('月間', datetime.now() - relativedelta(months=1), channel=BOT_DEV_CHANNEL), 'cron', day=1, hour=9, minute=0)
 scheduler.add_job(lambda: post_periodic('四半期', datetime.now() - relativedelta(months=3)), 'cron', month='1,4,7,10', day=1, hour=9, minute=0)
 scheduler.add_job(lambda: post_periodic('半期', datetime.now() - relativedelta(months=6)), 'cron', month='1,7', day=1, hour=9, minute=0)
 scheduler.add_job(lambda: post_periodic('年間', datetime.now() - relativedelta(years=1)), 'cron', month='1', day=1, hour=9, minute=0)
 scheduler.add_job(apply_all_positive_reactions, 'cron', hour=0, minute=10)
+
+def scheduled_publish_today():
+    try:
+        publish_today_only()
+    except Exception:
+        logger.exception("scheduled_publish_today でエラーが発生しました")
+
+#scheduler.add_job(publish_today_only, 'cron', minute=0)
+scheduler.add_job(scheduled_publish_today, 'cron', minute=10)
+scheduler.add_job(publish_all_periods, 'cron', hour=0, minute=0)
+scheduler.add_job(run_violation_trends, 'cron', hour=0, minute=0, id='violation_trends')
 scheduler.start()
 
 if __name__ == '__main__':

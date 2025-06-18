@@ -1,7 +1,10 @@
 import os
 import openai
 from utils.db import get_unjudged_reactions, cache_positive_reaction, get_unscored_positive_reactions, apply_reaction_scores
+from utils.slack_helpers import resolve_user
 import logging
+from dotenv import load_dotenv
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 # Default Model overwritten by .env file
@@ -73,8 +76,8 @@ def apply_all_positive_reactions():
                 user_reactions[uid] = []
             user_reactions[uid].append(reaction)
         details = '\n'.join(
-            #f'  {resolve_user(uid)}: {", ".join(reactions)}'
-            f'  {uid}: {", ".join(reactions)}'
+            f'  {resolve_user(uid)}: {", ".join(reactions)}'
+            #f'  {uid}: {", ".join(reactions)}'
             for uid, reactions in user_reactions.items()
         )
         logger.info(f"[LLM-batch: {MODEL}] Positive reactions judged by LLM:\n{details}")

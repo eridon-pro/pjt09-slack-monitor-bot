@@ -4,3 +4,9 @@ python-dotenv
 python-dateutil
 apscheduler
 openai
+notion-client
+numpy
+japanize-matplotlib
+setuptools
+requests
+matplotlib

@@ -66,3 +66,43 @@ Development of Bot to monitor comments in Slack.
 - 将来的なNotionやWeb連携を見据えた拡張性重視の設計
 
 ---
+
+
+
+# pjt09-slack-monitor-bot の紹介
+
+このプロジェクトは、Slackコミュニティ内の発言をリアルタイムに監視・評価し、貢献度ランキングや違反傾向分析を自動生成するBotアプリケーションです。
+主な機能:
+- **発言イベントの収集**: メッセージ投稿、リアクション、スレッド返信（回答）、ポジティブフィードバック、ガイドライン違反などをSQLiteデータベースに記録
+- **LLMによる質的評価**:
+  - 不適切投稿（ガイドライン違反）の自動検出とルール番号の記録
+  - リアクション絵文字のポジティブ／ネガティブ判定
+  - 感謝表現などポジティブフィードバックの自動抽出
+  - スレッド返信を「回答」として分類
+- **リアルタイムスコア計算**: 投稿数、獲得リアクション数、回答数、ポジティブフィードバック数、違反件数に重量づけした貢献度スコアを算出
+- **チャットコマンド**:
+  - `/scoreboard [today|weekly|monthly|all]`: 指定期間の上位貢献者ランキングを表示（管理者・一般ユーザー毎に表示範囲を制御）
+  - `/apply_reactions`: 未判定リアクションを一括でLLM判定しスコアに反映
+- **定期バッチ処理**:
+  - APSchedulerを使い、日次・週次・月次・四半期・年次でランキングをNotion DBにアップサート
+  - 毎時0分に「本日の累計ランキング」を更新
+- **データ可視化**:
+  - Notionページ／データベースでのランキング表表示
+  - 画像生成スクリプト（matplotlib）による違反傾向（ヒストグラム、時系列、ヒートマップ）の定期生成とNotionページへの自動埋め込み
+
+環境変数（`.env` に設定）:
+```dotenv
+SLACK_BOT_TOKEN= xoxb-...             # Slack Bot Token
+SLACK_APP_TOKEN= xapp-...             # Slack App Level Token（Socket Mode用）
+ADMIN_CHANNEL= C0123456789            # 管理者向け通知チャンネルID
+QUESTION_CHANNEL= C0987654321         # 質問用通知チャンネルID
+BOT_DEV_CHANNEL= C1234567890          # ボット投稿用チャンネルID（通常投稿用）
+SCORES_DB_PATH= ./scores.db          # SQLite データベースファイルパス
+TOP_N= 5                            # ランキングで表示する上位ユーザー数（デフォルト5）
+NOTION_TOKEN= secret                 # Notion API統合トークン
+NOTION_PAGE_ID= 21408ac90f4...       # ランキング用NotionページID
+NOTION_DB_ID= 21408ac90f4...         # データベース用Notion DB ID
+NOTION_UPDATED_BLOCK_ID= ...          # 最終更新日時表示用ブロックID
+NOTION_VIOLATION_DB_ID= ...           # 違反傾向分析用Notion DB ID（必要な場合）
+```
+

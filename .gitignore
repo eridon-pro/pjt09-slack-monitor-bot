@@ -13,3 +13,9 @@ __pycache__/
 
 # その他ログファイル等
 *.log
+
+# Google API Token
+*.json
+
+# Backup file
+.bak

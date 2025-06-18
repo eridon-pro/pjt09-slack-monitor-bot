@@ -19,12 +19,13 @@ CREATE TABLE IF NOT EXISTS user_scores (
 cur.execute("""
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL,          -- 投稿者
-    reactor_id TEXT,                -- リアクションした人（投稿ならNULL）
-    type TEXT NOT NULL,             -- 'post','reaction','answer','positive_feedback','violation'
-    reaction_name TEXT,             -- '+1', 'pray' など（リアクション時のみ）
+    user_id TEXT NOT NULL,             -- 投稿者
+    reactor_id TEXT,                   -- リアクションした人（投稿ならNULL）
+    type TEXT NOT NULL,                -- 'post','reaction','answer','positive_feedback','violation'
+    reaction_name TEXT,                -- '+1', 'pray' など（リアクション時のみ）
     ts_epoch REAL,
-    scored INTEGER DEFAULT 0        -- 加点済みなら1, 未加点なら0
+    scored INTEGER DEFAULT 0,          -- 加点済みなら1, 未加点なら0
+    violation_rule TEXT DEFAULT NULL,  -- ガイドライン違反と判定されたルール番号
 )
 """)
 

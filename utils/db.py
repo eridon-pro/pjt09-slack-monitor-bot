@@ -6,60 +6,6 @@ logger = logging.getLogger(__name__)
 
 DB_PATH = os.environ.get("SCORES_DB_PATH", "scores.db")
 
-'''def update_score(
-    user_id: str,
-    post=False,
-    reaction=False,
-    answer=False,
-    positive_feedback=False,
-    violation=False,
-    reactor_id=None,
-    reaction_name=None,
-    ts_epoch=None
-):
-    """
-    スコア集計(user_scores)とイベント履歴(events)を一括更新するユーティリティ関数。
-
-    - 各種アクション（post/reaction/answer/positive_feedback/violation）をboolで指定
-    - reaction時のみreactor_id, reaction_nameを記録
-    - ts_epoch未指定時は現在時刻（UNIXエポック秒）で記録
-    """
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    # 累計テーブル更新
-    cur.execute("INSERT OR IGNORE INTO user_scores(user_id) VALUES(?)", (user_id,))
-    if post:
-        cur.execute("UPDATE user_scores SET post_count = post_count + 1 WHERE user_id = ?", (user_id,))
-    if reaction:
-        cur.execute("UPDATE user_scores SET reaction_count = reaction_count + 1 WHERE user_id = ?", (user_id,))
-    if answer:
-        cur.execute("UPDATE user_scores SET answer_count = answer_count + 1 WHERE user_id = ?", (user_id,))
-    if positive_feedback:
-        cur.execute("UPDATE user_scores SET positive_feedback_count = positive_feedback_count + 1 WHERE user_id = ?", (user_id,))
-    if violation:
-        cur.execute("UPDATE user_scores SET violation_count = violation_count + 1 WHERE user_id = ?", (user_id,))
-
-    now_epoch = ts_epoch if ts_epoch is not None else time.time()  # ここで現在時刻（float: エポック秒）を取得
-
-    # events にも履歴を残す
-    for t, flag in [("post", post), ("reaction", reaction), ("answer", answer), ("positive_feedback", positive_feedback), ("violation", violation)]:
-        if flag:
-            # reaction の時だけ reactor_id, reaction_name を記録
-            if t == "reaction":
-                logger.info(f"DB INSERT: user_id={user_id}, reactor_id={reactor_id}, type={t}, reaction_name={reaction_name}, ts_epoch={now_epoch}")  # Debug
-                cur.execute(
-                    "INSERT INTO events(user_id, reactor_id, type, reaction_name, ts_epoch) VALUES(?,?,?,?,?)",
-                    (user_id, reactor_id, t, reaction_name, now_epoch)
-                )
-            else:
-                cur.execute(
-                    "INSERT INTO events(user_id, reactor_id, type, reaction_name, ts_epoch) VALUES(?,?,?,?,?)",
-                    (user_id, None, t, None, now_epoch)
-                )
-    conn.commit()
-    conn.close()'''
-
-
 def update_score(
     user_id: str,
     post=False,
@@ -106,7 +52,8 @@ def record_event(
     event_type: str,
     ts_epoch: float = None,
     reactor_id: str = None,
-    reaction_name: str = None
+    reaction_name: str = None,
+    violation_rule: str = None
 ):
     """
     任意イベントをeventsテーブルに記録する汎用関数。
@@ -116,6 +63,7 @@ def record_event(
     :param ts_epoch: イベント時刻（float: UNIXエポック秒、未指定なら現在時刻）
     :param reactor_id: リアクションした人（通常イベントではNone）
     :param reaction_name: リアクション名（通常イベントではNone）
+    :param violation_rule: ガイドライン違反と判定された時の該当するルール番号（通常イベントではNone）
     """
     if ts_epoch is None:
         ts_epoch = time.time()
@@ -123,14 +71,16 @@ def record_event(
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO events (user_id, reactor_id, type, reaction_name, ts_epoch) VALUES (?, ?, ?, ?, ?)",
-        (user_id, reactor_id, event_type, reaction_name, ts_epoch)
+        "INSERT INTO events (user_id, reactor_id, type, reaction_name, ts_epoch, violation_rule) VALUES (?, ?, ?, ?, ?, ?)",
+        (user_id, reactor_id, event_type, reaction_name, ts_epoch, violation_rule)
     )
+    event_id = cur.lastrowid
     conn.commit()
-    conn.close()
     logger.info(
         f"DB INSERT: user_id={user_id}, reactor_id={reactor_id}, type={event_type}, reaction_name={reaction_name}, ts_epoch={ts_epoch}"
     )
+    conn.close()
+    return event_id
 
 
 def is_positive_reaction(reaction_name: str):
