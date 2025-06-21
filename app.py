@@ -51,6 +51,7 @@ from utils.scoring import fetch_user_counts, compute_score
 from publish_master_upsert import publish_today_only, publish_all_periods
 from utils.scoring import fetch_user_counts
 from violation_trends import main as run_violation_trends
+from publish_user_metrics import main as publish_user_metrics
 
 if not all([SLACK_BOT_TOKEN, SLACK_APP_TOKEN, ADMIN_CHANNEL, QUESTION_CHANNEL, BOT_DEV_CHANNEL]):
     logger.error("必要な環境変数が設定されていません。")
@@ -67,7 +68,7 @@ def notify_violation(user: str, text: str, channel: str, ts: str, rules: list[in
         link = app.client.chat_getPermalink(channel=channel, message_ts=ts)['permalink']
     except SlackApiError:
         link = None
-    alert = f"<!channel> :rotating_light: *ガイドライン違反検知!*\n"
+    alert = f"<!channel> :rotating_light: *ガイドライン違反検知！*\n"
     alert += f"User: {username}\nText: {text}\n"
     # 違反規約番号＋本文を追加
     if rules:
@@ -107,6 +108,13 @@ def build_scoreboard_blocks(period_name: str, since: datetime = None, until: dat
         header = f"🏅 {period_name}貢献度ランキング (期間 {start_str}〜{end_str})"
     else:
         # Cumulative over all time
+        # 全期間用に、DBの最古イベント日時と現在時刻を取得
+        cur_db = sqlite3.connect(DB_PATH).cursor()
+        cur_db.execute("SELECT MIN(ts_epoch) FROM events")
+        min_ts = cur_db.fetchone()[0] or 0.0
+        cur_db.connection.close()
+        start_dt = datetime.fromtimestamp(min_ts)
+        end_dt = datetime.now()
         start_str = start_dt.strftime('%Y/%m/%d %H:%M')
         end_str = end_dt.strftime('%Y/%m/%d %H:%M')
         header = f'⏱️ 貢献度ランキング(全期間 {start_str}〜{end_str})'
@@ -376,6 +384,7 @@ def scheduled_publish_today():
 scheduler.add_job(scheduled_publish_today, 'cron', minute=10)
 scheduler.add_job(publish_all_periods, 'cron', hour=0, minute=0)
 scheduler.add_job(run_violation_trends, 'cron', hour=0, minute=0, id='violation_trends')
+scheduler.add_job(publish_user_metrics, 'cron', hour=0, minute=30, id='publish_user_metrics')
 scheduler.start()
 
 if __name__ == '__main__':

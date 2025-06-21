@@ -15,7 +15,7 @@ import sqlite3
 from collections import Counter, defaultdict
 import datetime
 import zoneinfo
-from datetime import timezone
+from datetime import datetime, timedelta, timezone, date
 import japanize_matplotlib
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -41,8 +41,8 @@ HEADERS = {
 
 PERIOD_LABELS = {
     "all":     "全期間",
-    "weekly":  "過去7日",
-    "monthly": "過去30日",
+    "weekly":  "過去7日間",
+    "monthly": "過去30日間",
 }
 
 def upload_to_server(file_path: str):
@@ -102,7 +102,7 @@ def fetch_time_series_counts(db_path: str, since_ts: float = None) -> dict:
     cur.execute(sql, params)
     data = defaultdict(lambda: Counter())
     for ts_epoch, rule_str in cur.fetchall():
-        dt = datetime.datetime.fromtimestamp(ts_epoch, tz=timezone.utc).astimezone(zoneinfo.ZoneInfo("Asia/Tokyo")).date()
+        dt = datetime.fromtimestamp(ts_epoch, tz=timezone.utc).astimezone(zoneinfo.ZoneInfo("Asia/Tokyo")).date()
         date_str = dt.isoformat()
         for r in rule_str.split(','):
             r = r.strip()
@@ -132,7 +132,7 @@ def fetch_weekday_hour_heatmap(db_path: str, since_ts: float = None) -> dict:
     cur.execute(sql, params)
     heatmap = defaultdict(int)
     for (ts_epoch,) in cur.fetchall():
-        dt = datetime.datetime.fromtimestamp(ts_epoch, tz=timezone.utc).astimezone(zoneinfo.ZoneInfo("Asia/Tokyo"))
+        dt = datetime.fromtimestamp(ts_epoch, tz=timezone.utc).astimezone(zoneinfo.ZoneInfo("Asia/Tokyo"))
         weekday = dt.weekday()
         hour = dt.hour
         heatmap[(weekday, hour)] += 1
@@ -154,13 +154,14 @@ def plot_violation_rule_counts(counts: Counter, period_name: str, output_path: s
     values = [counts.get(r, 0) for r in rules]
 
     plt.figure(figsize=(10, 6))
-    plt.bar(rule_nums, values)
+    plt.bar(rule_nums, values, color='red')
     # only horizontal grid lines for histogram
     plt.grid(axis='y')
     plt.xlabel("ガイドライン規約違反となったルール番号", fontsize=16)
     plt.ylabel("件数", fontsize=16)
+    plt.yticks(fontsize=16)
     plt.title(f"ガイドライン規約違反となったルール番号の傾向 ({period_name})", fontsize=24)
-    plt.xticks(rule_nums, rules, fontsize=12)
+    plt.xticks(rule_nums, rules, fontsize=16)
     plt.tight_layout()
     plt.savefig(output_path)
     plt.close()
@@ -169,21 +170,27 @@ def plot_violation_rule_counts(counts: Counter, period_name: str, output_path: s
 def plot_time_series(data: dict, period_name: str, output_path: str):
     # data: {date_str: {rule: count}}
     # x軸は日付、y軸は件数。ルールごとに折れ線
-    from datetime import datetime, timedelta
     all_rules = set()
     for counts in data.values():
         all_rules.update(counts.keys())
     all_rules = sorted(all_rules, key=lambda x: int(x))
-    # Ensure all dates in span are included, filling missing dates
-    date_objs = [datetime.strptime(d, "%Y-%m-%d").date() for d in data.keys()]
-    if date_objs:
-        min_date = min(date_objs)
-        max_date = max(date_objs)
-        num_days = (max_date - min_date).days + 1
-        full_date_objs = [min_date + timedelta(days=i) for i in range(num_days)]
-        dates = full_date_objs
+    # Determine date span: daily up to yesterday
+    yesterday = datetime.now(zoneinfo.ZoneInfo("Asia/Tokyo")).date() - timedelta(days=1)
+    if period_name == PERIOD_LABELS["weekly"]:
+        # 過去7日間を固定で表示（昨日を含む7日分）
+        dates = [yesterday - timedelta(days=i) for i in reversed(range(7))]
+    elif period_name == PERIOD_LABELS["monthly"]:
+        # 過去30日間を固定で表示（昨日を含む30日分）
+        dates = [yesterday - timedelta(days=i) for i in reversed(range(30))]
     else:
-        dates = []
+        # 全期間はデータの最小日から昨日まで連続表示
+        date_objs = [datetime.strptime(d, "%Y-%m-%d").date() for d in data.keys()]
+        if date_objs:
+            min_date = min(date_objs)
+            max_date = min(max(date_objs), yesterday)
+            dates = [min_date + timedelta(days=i) for i in range((max_date - min_date).days + 1)]
+        else:
+            dates = []
     plt.figure(figsize=(12, 6))
     for rule in all_rules:
         y = [data[d.isoformat()].get(rule, 0) for d in dates]
@@ -191,14 +198,33 @@ def plot_time_series(data: dict, period_name: str, output_path: str):
     plt.xlabel("日時", fontsize=16)
     plt.ylabel("件数", fontsize=16)
     plt.title(f"ガイドライン規約違反となったルールの推移 ({period_name})", fontsize=24)
-    plt.grid(True)
+    plt.grid(axis='y')
     ax = plt.gca()
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-    plt.xticks(rotation=45, fontsize=12)
-    #plt.legend(loc='upper right', fontsize='small', ncol=2)
-    plt.legend(title="ルール番号", bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.tight_layout()
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%m/%d"))
+    # X軸の目盛り設定：全期間は自動調整、その他は日ごと
+    if period_name == PERIOD_LABELS["all"]:
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    else:
+        ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+    plt.xticks(rotation=45, fontsize=14)
+    plt.yticks(fontsize=16)
+    # Place legend inside the plot at top center, allowing multiple columns
+    plt.legend(
+        loc='upper center',
+        bbox_to_anchor=(0.5, 0.9),
+        ncol=min(len(all_rules), 5),
+        fontsize=14
+    )
+    ax = plt.gca()
+    # Set x-axis limits to span exactly from first to last date (yesterday)
+    ax.set_xlim(dates[0], dates[-1])
+    # Remove padding around the x-axis
+    ax.margins(x=0)
+    # X軸の目盛り設定：全期間は日数に応じてダイナミックに
+    if period_name == PERIOD_LABELS["all"]:
+        days_count = (dates[-1] - dates[0]).days + 1
+        ax.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, days_count // 15)))
+    plt.tight_layout(pad=0.5)
     plt.savefig(output_path)
     plt.close()
     logger.info(f"[{period_name}] 時系列グラフを '{output_path}' に保存しました。")
@@ -209,8 +235,9 @@ def plot_heatmap(heatmap: dict, period_name: str, output_path: str):
     data = np.zeros((7, 24), dtype=int)
     for (weekday, hour), count in heatmap.items():
         data[weekday, hour] = count
-    plt.figure(figsize=(12, 6))
+    plt.figure(figsize=(12, 8))
     im = plt.imshow(data, aspect='auto', cmap='Reds')
+    #im = plt.imshow(data, aspect='auto', cmap='terrain')
 
     # Set major ticks at the center of each cell
     plt.xticks(ticks=np.arange(24), labels=[f"{h}:00" for h in range(0,24)], rotation=45, fontsize=12)
@@ -228,7 +255,18 @@ def plot_heatmap(heatmap: dict, period_name: str, output_path: str):
         for x in range(data.shape[1]):
             plt.text(x, y, str(data[y, x]), ha="center", va="center", color="black" if data[y, x] < data.max()/2 else "white", fontsize=10)
 
-    plt.colorbar(im, label='ガイドライン規約違反件数')
+    import matplotlib.ticker as ticker
+    cbar = plt.colorbar(
+        im,
+        orientation='horizontal',
+        fraction=0.1,
+        pad=0.15,
+        aspect=40,
+        label='ガイドライン規約違反件数'
+    )
+    cbar.ax.tick_params(labelsize=14)
+    cbar.ax.xaxis.label.set_fontsize(14)
+    cbar.ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
     plt.xlabel("時間帯", fontsize=16)
     plt.ylabel("曜日", fontsize=16)
     plt.title(f"ガイドライン規約違反ヒートマップ (曜日vs時間帯) ({period_name})", fontsize=24)
@@ -357,14 +395,14 @@ def append_update_timestamp(page_id: str):
     """
     Notionページ末尾に「最終更新: YYYY-MM-DD HH:MM」を追加します。
     """
-    now = datetime.datetime.now(zoneinfo.ZoneInfo("Asia/Tokyo"))
+    now = datetime.now(zoneinfo.ZoneInfo("Asia/Tokyo"))
     ts_str = now.strftime("%Y-%m-%d %H:%M")
     url = f"https://api.notion.com/v1/blocks/{page_id}/children"
     data = {
         "children": [
             {"object":"block","type":"paragraph","paragraph":{"rich_text":[{"type":"text","text":{"content":""}}]}},
             {"object":"block","type":"paragraph","paragraph":{"rich_text":[{"type":"text","text":{"content":""}}]}},
-            {"object":"block","type":"paragraph","paragraph":{"rich_text":[{"type":"text","text":{"content":""}}]}},
+            #{"object":"block","type":"paragraph","paragraph":{"rich_text":[{"type":"text","text":{"content":""}}]}},
             {
                 "object": "block",
                 "type": "paragraph",
@@ -459,7 +497,7 @@ def main():
         heatmap = fetch_weekday_hour_heatmap(DB_PATH, since_ts)
 
         # 画像ファイル名（タイムスタンプ付き）
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         base_name = f"violation_trends_{period}_{timestamp}"
         hist_path     = f"{base_name}_hist.png"
         ts_path       = f"{base_name}_timeseries.png"

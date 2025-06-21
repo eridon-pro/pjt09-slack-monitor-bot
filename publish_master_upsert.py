@@ -1,4 +1,9 @@
 import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -13,16 +18,33 @@ from utils.slack_helpers import resolve_user
 logger = logging.getLogger(__name__)
 
 # 環境変数
-DB_PATH      = os.getenv("SCORES_DB_PATH", "scores.db")
-NOTION_DB_ID = os.getenv("NOTION_DB_ID")
-NOTION_TOKEN = os.getenv("NOTION_TOKEN")
-NOTION_UPDATED_BLOCK_ID = os.getenv("NOTION_UPDATED_BLOCK_ID")  # 最終更新日を入力するブロックから取得したプレースホルダーブロックのID
+DB_PATH        = os.getenv("SCORES_DB_PATH", "scores.db")
+NOTION_DB_ID   = os.getenv("NOTION_DB_ID")
+NOTION_TOKEN   = os.getenv("NOTION_TOKEN")
+NOTION_PAGE_ID = os.getenv("NOTION_PAGE_ID")  # 画像埋め込みやタイムスタンプ追記用のページID
+#NOTION_UPDATED_BLOCK_ID = os.getenv("NOTION_UPDATED_BLOCK_ID")  # 最終更新日を入力するブロックから取得したプレースホルダーブロックのID
 SLACK_WORKSPACE_URL = os.getenv("SLACK_WORKSPACE_URL")
 TOP_N = int(os.getenv("TOP_N", "5"))
 
 
 # Notion クライアント初期化
 notion = Client(auth=NOTION_TOKEN)
+
+def clear_timestamp_block():
+    """
+    Delete existing '最終更新:' paragraph blocks under the target page.
+    """
+    # Retrieve current children blocks
+    url = f"https://api.notion.com/v1/blocks/{NOTION_PAGE_ID}/children?page_size=100"
+    res = notion.blocks.children.list(block_id=NOTION_PAGE_ID, page_size=100)
+    for child in res.get("results", []):
+        # Identify timestamp paragraphs by checking type and text content
+        if child.get("type") == "paragraph":
+            texts = child["paragraph"]["rich_text"]
+            if texts and texts[0].get("type") == "text" and texts[0]["text"]["content"].startswith("最終更新:"):
+                # Archive (delete) this block
+                notion.blocks.update(block_id=child["id"], archived=True)
+
 
 def clear_all_records():
     """Archive all existing pages in the database."""
@@ -41,18 +63,29 @@ def clear_all_records():
 
 
 def update_timestamp_block():
-    """ページ下部の「最終更新: 」テキストブロックを書き換える"""
+    """
+    Notionページの末尾に「最終更新: YYYY-MM-DD HH:MM:SS」を新規追加する。
+    """
+    # Remove any existing timestamp blocks
+    clear_timestamp_block()
     now_iso = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    notion.blocks.update(
-        block_id=NOTION_UPDATED_BLOCK_ID,
-        paragraph={           # プレースホルダーが通常のテキスト段落（paragraph）ブロックの場合
-            "rich_text": [
-                {
-                    "type": "text",
-                    "text": {"content": f"最終更新: {now_iso}"}
+    # Append a new paragraph block with the timestamp
+    notion.blocks.children.append(
+        block_id=NOTION_PAGE_ID,  # append to the target Notion page, not the DB ID
+        children=[
+            {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [
+                        {
+                            "type": "text",
+                            "text": {"content": f"最終更新: {now_iso}"}
+                        }
+                    ]
                 }
-            ]
-        }
+            }
+        ]
     )
 
 
