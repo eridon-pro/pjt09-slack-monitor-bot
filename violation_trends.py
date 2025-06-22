@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone, date
 import japanize_matplotlib
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 import requests
 import subprocess
 
@@ -208,6 +209,7 @@ def plot_time_series(data: dict, period_name: str, output_path: str):
         ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
     plt.xticks(rotation=45, fontsize=14)
     plt.yticks(fontsize=16)
+    ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
     # Place legend inside the plot at top center, allowing multiple columns
     plt.legend(
         loc='upper center',

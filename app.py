@@ -23,6 +23,8 @@ SLACK_APP_TOKEN  = os.getenv("SLACK_APP_TOKEN")
 ADMIN_CHANNEL    = os.getenv("ADMIN_CHANNEL")
 QUESTION_CHANNEL = os.getenv("QUESTION_CHANNEL")
 BOT_DEV_CHANNEL  = os.getenv("BOT_DEV_CHANNEL")
+NOTION_SCOREBOARD_URL = os.getenv("NOTION_SCOREBOARD_URL")
+NOTION_VIOLATION_URL = os.getenv("NOTION_VIOLATION_URL")
 
 # ─── Database path ─────────────
 DB_PATH = os.getenv("SCORES_DB_PATH", "scores.db")
@@ -77,9 +79,10 @@ def notify_violation(user: str, text: str, channel: str, ts: str, rules: list[in
         for n in rules:
             body = RULES_MAP.get(n)
             if body:
-                alert += f"{n}. {body}\n"    
+                alert += f"{n}. {body}\n"
     if link:
         alert += f"\nLink: {link}"
+    alert += f"\n\n<{NOTION_VIOLATION_URL}|コミュニティ規約違反傾向分析ページ>"
     app.client.chat_postMessage(channel=ADMIN_CHANNEL, text=alert)
     chan_name = resolve_channel(channel)
     #logger.info(f"notification sent: violation user=@{username} channel=#{chan_name} ts={ts}")
@@ -122,6 +125,13 @@ def build_scoreboard_blocks(period_name: str, since: datetime = None, until: dat
     blocks = [{"type": "header", "text": {"type": "plain_text", "text": header}}]
     if not rows:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "該当ユーザーがいません。"}})
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"<{NOTION_SCOREBOARD_URL}|コミュニティ貢献度ランキングページ>"
+            }
+        })
         return blocks
 
     for i, (uid, posts, reacts, answers, pf, vio, score) in enumerate(rows, start=1):
@@ -136,6 +146,13 @@ def build_scoreboard_blocks(period_name: str, since: datetime = None, until: dat
             f" • ガイドライン違反: {vio}"
         )
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
+    blocks.append({
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": f"<{NOTION_SCOREBOARD_URL}|コミュニティ貢献度ランキングページ>"
+        }
+    })
     return blocks
 
 # ─── 引数パース ─────────────────────────────────────────
