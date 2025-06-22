@@ -377,6 +377,8 @@
 
 ## スクショ
 - Slack 違反通知
+![ガイドライン違反通知その１](images/violation_1.png)
+
 - Slack /scoreboard コマンド
 - Slack 月間貢献者ランキング
 - Notion ミュニティ貢献度ランキング
