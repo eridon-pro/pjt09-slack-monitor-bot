@@ -343,6 +343,21 @@
   python3 app.py
   ```
 - systemd や docker-compose 等で常駐実行することを推奨
+- ユーザーメトリクス(本日)の手動更新
+  ```bash
+  source ./venv/bin/activate
+  python3 publish_master_upsert.py
+  ```
+- ユーザーメトリクス(本日以外)、および、貢献度ランキングページの手動更新
+  ```bash
+  source ./venv/bin/activate
+  python3 publish_user_metrics.py
+  ```
+- コミュニティガイドライン違反件数、および、コミュニティガイドライン違反傾向分析ページの手動更新
+  ```bash
+  source ./venv/bin/activate
+  python3 violation_trends.py
+  ```
 
 
 ## 6. トラブルシューティング例
