@@ -442,7 +442,7 @@
 
 ### 3-5. 実行方法
 
-- 開発モードで起動:
+- 仮想環境で起動:
 
   ```bash
   source ./venv/bin/activate
@@ -450,6 +450,46 @@
   ```
 
 - systemd や docker-compose 等で常駐実行することを推奨
+  - systemd で常駐実行する場合の例
+
+    ```bash
+    $ cat /etc/systemd/system/pjt09-slack-monitor-bot.service
+
+    [Unit]
+    Description=Project09 Slack Monitor Bot
+    After=network.target
+
+    [Service]
+    Type=simple
+    User=XXXXX
+    Group=YYYYY
+    WorkingDirectory=/your/working/directory/full/path/pjt09-slack-monitor-bot
+    # .env を読み込む
+    EnvironmentFile=/your/working/directory/full/path/pjt09-slack-monitor-bot/.env
+    # 仮想環境の Python で起動
+    ExecStart=/your/working/directory/full/path/pjt09-slack-monitor-bot/venv/bin/python3 app.py
+    Restart=on-failure
+    # ログは journalctl へ出力
+    StandardOutput=journal
+    StandardError=journal
+
+    [Install]
+    WantedBy=multi-user.target
+    ```
+
+  - service file の有効化、service の実行・常駐化、サーバー起動時に service を実行・常駐化
+    
+    ```bash
+    $ sudo systemctl daemon-reload
+    $ sudo systemctl start pjt09-slack-monitor-bot.service
+    $ sudo systemctl enable pjt09-slack-monitor-bot.service
+    ```
+
+  - ログの確認
+    ```bash
+    $ sudo journalctl -u pjt09-slack-monitor-bot -f
+    ```
+  
 - ユーザーメトリクス(本日)の手動更新
 
   ```bash
