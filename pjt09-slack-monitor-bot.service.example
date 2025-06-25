@@ -1,0 +1,19 @@
+[Unit]
+Description=Project09 Slack Monitor Bot
+After=network.target
+
+[Service]
+Type=simple
+User=XXXXX
+WorkingDirectory=/your/working/directory/full/path/pjt09-slack-monitor-bot
+# .env を読み込む
+EnvironmentFile=/your/working/directory/full/path/pjt09-slack-monitor-bot/.env
+# 仮想環境の Python で起動
+ExecStart=/your/working/directory/full/path/pjt09-slack-monitor-bot/venv/bin/python3 app.py
+Restart=on-failure
+# ログは journalctl へ出力
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
