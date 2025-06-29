@@ -1,10 +1,21 @@
 import os
-import sqlite3
 import time
+import datetime
+from datetime import timedelta
+import json
+import sqlite3
 import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
 logger = logging.getLogger(__name__)
 
+from dotenv import load_dotenv
+load_dotenv()
 DB_PATH = os.environ.get("SCORES_DB_PATH", "scores.db")
+
 
 def update_score(
     user_id: str,
@@ -188,3 +199,170 @@ def apply_reaction_scores(events):
         cur.execute("UPDATE events SET scored=1 WHERE id=?", (event["id"],))
     conn.commit()
     conn.close()
+
+
+def fetch_posts_for_faq(conn, channel, window_days=7):
+    """
+    指定チャンネルの、最近window_days日以内の質問（親スレッド）投稿(slack_posts)を返す(id, ts, text, thread_ts)。
+    """
+    now = datetime.datetime.utcnow().timestamp()
+    window_start = now - window_days * 86400
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, ts, text, thread_ts FROM slack_posts WHERE channel=? AND ts>=? AND thread_ts=ts",
+        (channel, window_start)
+    )
+    #return cur.fetchall()
+    rows = cur.fetchall()
+    return [
+        {"id": r[0], "ts": r[1], "text": r[2], "thread_ts": r[3]}
+        for r in rows
+    ]
+
+
+def fetch_posts_for_topics(conn, channels, window_days=7):
+    """
+    指定チャンネルリストから、最近window_days日以内のトップレベル投稿(slack_posts)を返す(id, ts, text)。
+    channels: list of channel IDs
+    """
+    now = datetime.datetime.utcnow().timestamp()
+    window_start = now - window_days * 86400
+    cur = conn.cursor()
+    placeholders = ','.join('?' for _ in channels)
+    query = f"SELECT id, ts, text FROM slack_posts WHERE channel IN ({placeholders}) AND ts>=? AND thread_ts=ts"
+    cur.execute(query, (*channels, window_start))
+    rows = cur.fetchall()
+    return [
+        {"id": r[0], "ts": r[1], "text": r[2]}
+        for r in rows
+    ]
+
+
+def insert_extracted_item(post_ids, title, created_at=None, answer=None, source_url=None):
+    """
+    extracted_itemsテーブルに新規アイテムを挿入する。
+    post_idsはリスト、titleは文字列
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        if created_at is None:
+            created_at = datetime.datetime.utcnow().isoformat()
+        item_json = {"post_ids": post_ids, "title": title}
+        cur.execute(
+            "INSERT INTO extracted_items (post_ids, title, created_at, answer, source_url) VALUES (?, ?, ?, ?, ?)",
+            (json.dumps(post_ids), title, created_at, answer, source_url)
+        )
+        item_id = cur.lastrowid
+        conn.commit()
+        logger.info(f"Inserted extracted_item with id={item_id}, title={title}")
+        return item_id
+    except Exception as e:
+        logger.error(f"Failed to insert extracted_item: {e}")
+        raise
+    finally:
+        conn.close()
+
+
+def insert_extracted_item_type(item_id, type_name):
+    """
+    extracted_item_typesテーブルに新規タイプを挿入する。
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT INTO extracted_item_types (item_id, type) VALUES (?, ?)",
+            (item_id, type_name)
+        )
+        conn.commit()
+        logger.info(f"Inserted extracted_item_type with item_id={item_id}, type_name={type_name}")
+    except Exception as e:
+        logger.error(f"Failed to insert extracted_item_type: {e}")
+        raise
+    finally:
+        conn.close()
+
+
+def insert_trend_topic(conn, label, topic_text, size, created_at=None):
+    """
+    trend_topics テーブルに新規トピックを挿入する。
+    """
+    if created_at is None:
+        created_at = datetime.datetime.utcnow().timestamp()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO trend_topics (label, topic_text, size, created_at) VALUES (?, ?, ?, ?)",
+        (label, topic_text, size, created_at)
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def insert_info_request(conn, label: int, requests: str, size: int, created_at=None) -> int:
+    """
+    info_requests テーブルに新規情報リクエストを挿入する。
+    """
+    if created_at is None:
+        created_at = datetime.datetime.utcnow().timestamp()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO info_requests (label, request_text, size, created_at) VALUES (?, ?, ?, ?)",
+        (label, requests, size, created_at)
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def fetch_last_import_ts(conn) -> float:
+    """
+    Retrieve the last import timestamp from the import_state table.
+    If no timestamp is found, returns 0.
+    """
+    cur = conn.cursor()
+    cur.execute("SELECT last_ts FROM import_state ORDER BY last_ts DESC LIMIT 1")
+    row = cur.fetchone()
+    return row[0] if row else 0.0
+
+
+def fetch_thread_replies(conn, post_id):
+    """
+    Fetch the texts of all replies in the thread of the given post ID.
+    Returns a list of strings (text of replies).
+    """
+    cur = conn.cursor()
+    # First, get the thread_ts for the given post_id
+    cur.execute("SELECT thread_ts FROM slack_posts WHERE id = ?", (post_id,))
+    row = cur.fetchone()
+    if row is None or row[0] is None:
+        return []
+    thread_ts = row[0]
+    # Now fetch all posts in this thread (excluding the main post)
+    cur.execute(
+        "SELECT text FROM slack_posts WHERE thread_ts = ? AND id != ? ORDER BY ts ASC",
+        (thread_ts, post_id)
+    )
+    replies = [r[0] for r in cur.fetchall()]
+    return replies
+
+
+def fetch_post_text(conn, post_id):
+    """
+    Fetch the text of a single post by its ID.
+    Returns the text string, or None if not found.
+    """
+    cur = conn.cursor()
+    cur.execute("SELECT text FROM slack_posts WHERE id = ?", (post_id,))
+    row = cur.fetchone()
+    if row is None:
+        return None
+    return row[0]
+
+
+def count_posts_since(conn, ts: float) -> int:
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT COUNT(*) FROM slack_posts WHERE ts > ? AND thread_ts = ts",
+        (ts,)
+    )
+    return cur.fetchone()[0]

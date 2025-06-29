@@ -54,6 +54,7 @@ from publish_master_upsert import publish_today_only, publish_all_periods
 from utils.scoring import fetch_user_counts
 from violation_trends import main as run_violation_trends
 from publish_user_metrics import main as publish_user_metrics
+import daily_import
 
 if not all([SLACK_BOT_TOKEN, SLACK_APP_TOKEN, ADMIN_CHANNEL, QUESTION_CHANNEL, BOT_DEV_CHANNEL]):
     logger.error("必要な環境変数が設定されていません。")
@@ -402,6 +403,7 @@ scheduler.add_job(scheduled_publish_today, 'cron', minute=10)
 scheduler.add_job(publish_all_periods, 'cron', hour=0, minute=0)
 scheduler.add_job(run_violation_trends, 'cron', hour=0, minute=0, id='violation_trends')
 scheduler.add_job(publish_user_metrics, 'cron', hour=0, minute=30, id='publish_user_metrics')
+scheduler.add_job(daily_import.main, 'cron', hour=5, minute=0, id='daily_import')
 scheduler.start()
 
 if __name__ == '__main__':

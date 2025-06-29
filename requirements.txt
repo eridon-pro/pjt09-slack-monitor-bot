@@ -10,3 +10,5 @@ matplotlib
 japanize-matplotlib
 setuptools
 requests
+scikit-learn
+bs4
