@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from pipelines import process_faq, process_trend_topics, process_info_requests
-from publishers import post_faq_to_slack, post_trends_to_slack, notion_upsert_all
+from publishers import post_faq_to_slack, post_trends_to_slack, post_info_requests_to_slack, notion_upsert_all
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -191,7 +191,8 @@ def main():
         process_trend_topics(db)
         post_trends_to_slack(db)
         process_info_requests(db)
-        #notion_upsert_all(db)
+        post_info_requests_to_slack(db)
+        notion_upsert_all(db)
     except Exception as e:
         logging.error(f"Error during processing pipelines: {e}")
 

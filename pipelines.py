@@ -224,9 +224,9 @@ def process_info_requests(db):
     last_ts = fetch_last_import_ts(db)
     new_count = count_posts_since(db, last_ts)
     THRESHOLD = 10
-    #if new_count < THRESHOLD:
-    #    logger.info(f"[InfoRequests] Skipping info requests: only {new_count} new posts (< threshold {THRESHOLD}).")
-    #    return
+    if new_count < THRESHOLD:
+        logger.info(f"[InfoRequests] Skipping info requests: only {new_count} new posts (< threshold {THRESHOLD}).")
+        return
     logger.info(f"[InfoRequests] Starting info requests processing: {new_count} new posts (>= threshold {THRESHOLD}).")
     posts = fetch_posts_for_topics(db, TOPIC_CHANNELS, FAQ_WINDOW_DAYS)
     if not posts:

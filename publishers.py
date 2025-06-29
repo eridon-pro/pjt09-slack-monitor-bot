@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from notion_client import Client as NotionClient
+import json
 import logging
 logging.basicConfig(
     level=logging.INFO,
@@ -125,6 +126,36 @@ def post_trends_to_slack(db, slack_token=SLACK_BOT_TOKEN, channel=ADMIN_CHANNEL)
         text="📈 最新のトレンドトピックをお届けします",
         blocks=blocks
     )
+
+
+def post_info_requests_to_slack(db, slack_token=SLACK_BOT_TOKEN, channel=ADMIN_CHANNEL):
+    """
+    Post recent information requests to Slack.
+    """
+    client = WebClient(token=slack_token)
+    cur = db.cursor()
+    # Fetch top 5 info requests by most requested items (size)
+    cur.execute(
+        "SELECT id, request_text, size, created_at "
+        "FROM info_requests "
+        "ORDER BY size DESC, created_at DESC "
+        "LIMIT 5"
+    )
+    rows = cur.fetchall()
+
+    text = "<!channel> 📣 *受講生から多く求められている情報(過去7日間分)*\n\n"
+    for idx, (req_id, req_text, size, ts) in enumerate(rows, start=1):
+        try:
+            items = json.loads(req_text)
+        except Exception:
+            items = [req_text]
+        text += f"*カテゴリー{idx}* (件数: {size})\n"
+        for item in items:
+            text += f"- {item}\n"
+        text += "\n"
+    text += "コミュニティトレンド分析: https://www.notion.so/21408ac90f4c80a9b60ad7d250967ca9\n"
+
+    client.chat_postMessage(channel=channel, text=text)
 
 
 def clear_notion_page(notion, page_id):
@@ -279,12 +310,88 @@ def notion_upsert_trends(db, notion, page_id):
     notion.blocks.children.append(block_id=page_id, children=children)
     logger.info(f"Updated Notion page {page_id} with trend topics.")
 
+
 def notion_upsert_info_requests(db, notion, page_id):
     """
-    Upsert information request section. (To be implemented)
+    Upsert information request section.
     """
-    # TODO: generate and append info request blocks
-    pass
+    # Fetch info request entries
+    cur = db.cursor()
+    cur.execute(
+        "SELECT id, request_text, size, created_at FROM info_requests ORDER BY size DESC, created_at DESC LIMIT 5"
+    )
+    rows = cur.fetchall()
+
+    # Build Notion blocks for info requests
+    children = []
+    # Section heading
+    children.append({
+        "object": "block",
+        "type": "heading_2",
+        "heading_2": {
+            "rich_text": [
+                {"type": "text", "text": {"content": "📣 受講生から多く求められている情報(過去7日間分)"}}
+            ]
+        }
+    })
+    # Divider
+    children.append({"object": "block", "type": "divider", "divider": {}})
+
+    for idx, (_id, req_text, size, ts) in enumerate(rows, start=1):
+        # Decode JSON list or single string
+        try:
+            items = json.loads(req_text)
+            if not isinstance(items, list):
+                items = [items]
+        except Exception:
+            items = [req_text]
+
+        # Heading for each category
+        title = f"🏅 カテゴリー{idx} (件数: {size})" if idx == 1 else f"カテゴリー{idx} (件数: {size})"
+        children.append({
+            "object": "block",
+            "type": "heading_3",
+            "heading_3": {
+                "rich_text": [
+                    {"type": "text", "text": {"content": title}}
+                ]
+            }
+        })
+
+        # Add each requested item as a bulleted list
+        for item in items:
+            children.append({
+                "object": "block",
+                "type": "bulleted_list_item",
+                "bulleted_list_item": {
+                    "rich_text": [
+                        {"type": "text", "text": {"content": item}}
+                    ]
+                }
+            })
+
+        # Add timestamp
+        try:
+            dt = datetime.fromtimestamp(float(ts), timezone(timedelta(hours=9)))
+        except Exception:
+            dt = datetime.now(timezone(timedelta(hours=9)))
+        created = dt.strftime('%Y-%m-%d %H:%M')
+        children.append({
+            "object": "block",
+            "type": "paragraph",
+            "paragraph": {
+                "rich_text": [
+                    {"type": "text", "text": {"content": f"登録日時: {created}"}}
+                ]
+            }
+        })
+        # Divider after each category
+        children.append({"object": "block", "type": "divider", "divider": {}})
+
+    # Append to page
+    notion.blocks.children.append(block_id=page_id, children=children)
+    logger.info(f"Updated Notion page {page_id} with info requests.")
+
 
 def append_batch_timestamp(children):
     """
