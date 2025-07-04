@@ -1,0 +1,16 @@
+# Secretやローカル開発用ファイル
+.env
+*.db
+*.sqlite3
+*.sql
+*.bak
+*.json
+*.example
+*.md
+
+# Python のキャッシュなど
+__pycache__/
+*.py[cod]
+
+# README.md用画像
+images/

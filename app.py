@@ -407,6 +407,6 @@ scheduler.add_job(daily_import.main, 'cron', hour=5, minute=0, id='daily_import'
 scheduler.start()
 
 if __name__ == '__main__':
-    #import db_init
+    import db_init
     handler = SocketModeHandler(app, SLACK_APP_TOKEN)
     handler.start()

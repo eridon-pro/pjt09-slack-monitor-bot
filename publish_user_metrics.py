@@ -20,6 +20,8 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.ticker import MaxNLocator
 import japanize_matplotlib
+import boto3
+from botocore.exceptions import BotoCoreError, ClientError
 from utils.scoring import compute_score, fetch_user_counts
 from utils.slack_helpers import resolve_user
 from publish_master_upsert import update_timestamp_block
@@ -33,10 +35,16 @@ os.makedirs(OUT_DIR, exist_ok=True)
 REMOTE_USER     = os.getenv("REMOTE_USER")
 REMOTE_HOST     = os.getenv("REMOTE_HOST")
 REMOTE_PATH     = os.getenv("REMOTE_PATH")
+AWS_ACCESS_KEY_ID     = os.getenv("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+S3_BUCKET       = os.getenv("S3_BUCKET")
+S3_REGION       = os.getenv("AWS_REGION", "ap-northeast-1")
+s3_client       = boto3.client("s3", region_name=S3_REGION)
+CLOUDFRONT_URL  = os.getenv("CLOUDFRONT_URL")
+S3_KEY_PREFIX   = os.getenv("S3_KEY_PREFIX", "").strip("/")
 HOST_URL        = os.getenv("HOST_URL")
 NOTION_TOKEN    = os.getenv("NOTION_TOKEN")
 NOTION_PAGE_ID  = os.getenv("NOTION_PAGE_ID")
-
 
 # 期間定義: (ファイル名用キー, 表示ラベル, 日数)
 PERIODS = [
@@ -79,16 +87,50 @@ def get_all_start():
     return get_yesterday_mid()
 
 
-def upload_to_server(file_path: str):
-    """SCPでリモートサーバーにファイルをアップロード"""
-    dest = f"{REMOTE_USER}@{REMOTE_HOST}:{REMOTE_PATH}/"
-    subprocess.run(["scp", file_path, dest], check=True)
-    # アップロード後、ローカルのファイルを削除
+#def upload_to_server(file_path: str):
+#    """SCPでリモートサーバーにファイルをアップロード"""
+#    dest = f"{REMOTE_USER}@{REMOTE_HOST}:{REMOTE_PATH}/"
+#    subprocess.run(["scp", file_path, dest], check=True)
+#    # アップロード後、ローカルのファイルを削除
+def upload_to_server(file_path: str) -> str:
+    """Upload file to S3 and return public URL (optionally via CloudFront)."""
+    if not S3_BUCKET:
+        logger.error("S3_BUCKET not configured.")
+        return ""
+    base = os.path.basename(file_path)
+    key = f"{S3_KEY_PREFIX}/{base}" if S3_KEY_PREFIX else base
+    # --- cleanup old remote files only for this file-type+period ---
+    # Filename example: metrics_7days_20250704205652.png
+    filename = base
+    parts = filename.split('_', 2)
+    # parts[0] = "metrics" or "heatmap"
+    # parts[1] = "7days" or "30days" or "all"
+    type_and_period = f"{parts[0]}_{parts[1]}_"
+    prefix = f"{S3_KEY_PREFIX}/{type_and_period}" if S3_KEY_PREFIX else type_and_period
     try:
+        resp = s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix)
+        for obj in resp.get('Contents', []):
+            old_key = obj['Key']
+            if old_key.startswith(prefix) and old_key != key:
+                s3_client.delete_object(Bucket=S3_BUCKET, Key=old_key)
+                logger.info(f"Deleted old S3 object: {old_key}")
+    except (BotoCoreError, ClientError) as e:
+        logger.warning(f"Failed to cleanup old S3 objects for prefix '{prefix}': {e}")
+    try:
+        #s3_client.upload_file(file_path, S3_BUCKET, key, ExtraArgs={'ACL': 'public-read'})
+        s3_client.upload_file(file_path, S3_BUCKET, key)
+        if CLOUDFRONT_URL:
+            url = f"{CLOUDFRONT_URL}/{key}"
+        else:
+            url = f"https://{S3_BUCKET}.s3.{S3_REGION}.amazonaws.com/{key}"
+        logger.info(f"Uploaded {file_path} to S3://{S3_BUCKET}/{key}")
         os.remove(file_path)
-    except Exception as e:
-        logger.warning(f"Failed to remove local file {file_path}: {e}")
-
+        return url
+    #except Exception as e:
+    #    logger.warning(f"Failed to remove local file {file_path}: {e}")
+    except (BotoCoreError, ClientError) as e:
+        logger.error(f"S3 upload failed for {file_path}: {e}")
+        return ""
 
 def append_paragraph_to_notion(page_id: str, text: str):
     """
@@ -374,21 +416,25 @@ def main():
         hm_path = plot_heatmap_for_period(key, label, start_dt, end_dt, user_ids)
 
         # --- 古いリモートファイルを削除 (新しいアップロード前) ---
-        try:
-            cleanup_cmd = f"rm {REMOTE_PATH}/metrics_{key}_* {REMOTE_PATH}/heatmap_{key}_*"
-            subprocess.run(
-                ["ssh", f"{REMOTE_USER}@{REMOTE_HOST}", cleanup_cmd],
-                check=True
-            )
-            logger.info(f"Removed old remote metrics and heatmap files for period '{key}'")
-        except Exception as e:
-            logger.warning(f"Failed to cleanup old remote files: {e}")
+        #try:
+        #    cleanup_cmd = f"rm {REMOTE_PATH}/metrics_{key}_* {REMOTE_PATH}/heatmap_{key}_*"
+        #    subprocess.run(
+        #        ["ssh", f"{REMOTE_USER}@{REMOTE_HOST}", cleanup_cmd],
+        #        check=True
+        #    )
+        #    logger.info(f"Removed old remote metrics and heatmap files for period '{key}'")
+        #except Exception as e:
+        #    logger.warning(f"Failed to cleanup old remote files: {e}")
+        # SCP-based cleanup and upload removed
 
         # SCPで両画像をアップロード
-        upload_to_server(out_path)
-        upload_to_server(hm_path)
-        public_line_url = f"{HOST_URL}/{os.path.basename(out_path)}"
-        public_hm_url   = f"{HOST_URL}/{os.path.basename(hm_path)}"
+        #upload_to_server(out_path)
+        #upload_to_server(hm_path)
+        #public_line_url = f"{HOST_URL}/{os.path.basename(out_path)}"
+        #public_hm_url   = f"{HOST_URL}/{os.path.basename(hm_path)}"
+        # S3 upload and capture URLs
+        public_line_url = upload_to_server(out_path)
+        public_hm_url = upload_to_server(hm_path)
         # 埋め込み用URLとキャプションをリストに追加（グリッド用）
         to_embed_blocks.append((public_line_url, f"{label} 折れ線グラフ"))
         to_embed_blocks.append((public_hm_url,    f"{label} ヒートマップ"))

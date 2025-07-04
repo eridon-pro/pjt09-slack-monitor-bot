@@ -1,0 +1,17 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    #command: ["python", "app.py"]
+    env_file:
+      - .env
+    volumes:
+      #- .:/usr/src/app         # (ホットリロードしない) ソースコードをコンテナにマウント
+      - ./scores.db:/usr/src/app/scores.db  # 永続化したい SQLite DB ファイル
+      - ./utils/constants.py:/usr/src/app/utils/constants.py
+      - ./utils/faq_20250628.jsonl:/usr/src/app/utils/faq_20250628.jsonl
+      - ./utils/guidelines.txt:/usr/src/app/utils/guidelines.txt
+    #ports:
+    #  - "3000:3000"            # （必要に応じて公開ポートを設定）
+    restart: unless-stopped

@@ -12,3 +12,5 @@ setuptools
 requests
 scikit-learn
 bs4
+boto3
+botocore

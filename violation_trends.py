@@ -22,17 +22,26 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import requests
 import subprocess
+import boto3
+from botocore.exceptions import ClientError
 
 # --- Configuration ---
 # All environment variables loaded here as module-level constants
-DB_PATH           = os.getenv("SCORES_DB_PATH", "scores.db")
-NOTION_TOKEN      = os.getenv("NOTION_TOKEN")
-NOTION_PAGE_ID    = os.getenv("NOTION_VIOLATION_PAGE_ID")
-REMOTE_USER       = os.getenv("REMOTE_USER")
-REMOTE_HOST       = os.getenv("REMOTE_HOST")
-REMOTE_PATH       = os.getenv("REMOTE_PATH")
-HOST_URL          = os.getenv("HOST_URL")
-GUIDELINES_PATH   = os.getenv("GUIDELINES_PATH", "./utils/guidelines.txt")
+DB_PATH         = os.getenv("SCORES_DB_PATH", "scores.db")
+NOTION_TOKEN    = os.getenv("NOTION_TOKEN")
+NOTION_PAGE_ID  = os.getenv("NOTION_VIOLATION_PAGE_ID")
+#REMOTE_USER     = os.getenv("REMOTE_USER")
+#REMOTE_HOST     = os.getenv("REMOTE_HOST")
+#REMOTE_PATH     = os.getenv("REMOTE_PATH")
+#HOST_URL        = os.getenv("HOST_URL")
+S3_BUCKET       = os.getenv("S3_BUCKET")
+S3_REGION       = os.getenv("AWS_REGION", "ap-northeast-1")
+s3_client       = boto3.client("s3", region_name=S3_REGION)
+CLOUDFRONT_URL  = os.getenv("CLOUDFRONT_URL")
+S3_KEY_PREFIX   = os.getenv("S3_KEY_PREFIX", "").strip("/")
+AWS_ACCESS_KEY_ID     = os.getenv("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+GUIDELINES_PATH = os.getenv("GUIDELINES_PATH", "./utils/guidelines.txt")
 
 HEADERS = {
     "Authorization": f"Bearer {NOTION_TOKEN}",
@@ -46,13 +55,13 @@ PERIOD_LABELS = {
     "monthly": "過去30日間",
 }
 
-def upload_to_server(file_path: str):
-    """
-    Upload a file to the remote server via SCP.
-    """
-    dest = f"{REMOTE_USER}@{REMOTE_HOST}:{REMOTE_PATH}/"
-    subprocess.run(["scp", file_path, dest], check=True)
-    logger.info(f"Uploaded '{file_path}' to {REMOTE_HOST}:{REMOTE_PATH}")
+#def upload_to_server(file_path: str):
+#    """
+#    Upload a file to the remote server via SCP.
+#    """
+#    dest = f"{REMOTE_USER}@{REMOTE_HOST}:{REMOTE_PATH}/"
+#    subprocess.run(["scp", file_path, dest], check=True)
+#    logger.info(f"Uploaded '{file_path}' to {REMOTE_HOST}:{REMOTE_PATH}")
 
 def fetch_violation_counts(db_path: str, since_ts: float = None) -> Counter:
     """
@@ -512,24 +521,50 @@ def main():
         plot_heatmap(heatmap, label, heatmap_path)
 
         # 古いファイルをリモートサーバーから削除（同じ期間のもの）
-        try:
-            cleanup_cmd = f"rm {REMOTE_PATH}/violation_trends_{period}_*"
-            subprocess.run(["ssh", f"{REMOTE_USER}@{REMOTE_HOST}", cleanup_cmd], check=True)
-            logger.info(f"Removed old remote files for period '{period}'")
-        except Exception as e:
-            logger.warning(f"Failed to clean up old remote files: {e}")
+        #try:
+        #    cleanup_cmd = f"rm {REMOTE_PATH}/violation_trends_{period}_*"
+        #    subprocess.run(["ssh", f"{REMOTE_USER}@{REMOTE_HOST}", cleanup_cmd], check=True)
+        #    logger.info(f"Removed old remote files for period '{period}'")
+        #except Exception as e:
+        #    logger.warning(f"Failed to clean up o  ld remote files: {e}")
 
-        # Upload images to remote server via SCP
+        # Cleanup old S3 objects for this period (run immediately before upload)
+        cleanup_prefix = f"{S3_KEY_PREFIX}/violation_trends_{period}_"
+        # Determine current keys to keep
+        current_keys = {cleanup_prefix + os.path.basename(path) for path in (hist_path, ts_path, heatmap_path)}
+        resp = s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix=cleanup_prefix)
+        #logger.info(f"[{period}] list_objects_v2 Prefix={cleanup_prefix} -> Contents={resp.get('Contents')}")  # Debug
+        if resp.get('Contents'):
+            # Delete objects not in current_keys
+            delete_keys = [
+                {'Key': obj['Key']}
+                for obj in resp['Contents']
+                if obj['Key'] not in current_keys
+            ]
+            if delete_keys:
+                s3_client.delete_objects(Bucket=S3_BUCKET, Delete={'Objects': delete_keys})
+                logger.info(f"[{period}] Removed old S3 objects: {[o['Key'] for o in delete_keys]}")
+
+        # Upload images to S3 under S3_KEY_PREFIX/
         for path in (hist_path, ts_path, heatmap_path):
+            key = f"{S3_KEY_PREFIX}/{os.path.basename(path)}"
             try:
-                upload_to_server(path)
-            except Exception as e:
-                logger.info(f"Failed to upload {path} via SCP: {e}")
-
-        hist_url = f"{HOST_URL}/{hist_path}"
-        ts_url   = f"{HOST_URL}/{ts_path}"
-        heat_url = f"{HOST_URL}/{heatmap_path}"
-        logger.info("Using external host URLs:")
+            #    upload_to_server(path)
+            #except Exception as e:
+            #    logger.info(f"Failed to upload {path} via SCP: {e}")
+                s3_client.upload_file(path, S3_BUCKET, key)
+                logger.info(f"Uploaded '{path}' to s3://{S3_BUCKET}/{key}")
+            except ClientError as e:
+                logger.error(f"Failed to upload {path} to S3: {e}")     
+                
+        #hist_url = f"{HOST_URL}/{hist_path}"
+        #ts_url   = f"{HOST_URL}/{ts_path}"
+        #heat_url = f"{HOST_URL}/{heatmap_path}"
+        #logger.info("Using external host URLs:")
+        hist_url = f"{CLOUDFRONT_URL}/{S3_KEY_PREFIX}/{hist_path}"
+        ts_url   = f"{CLOUDFRONT_URL}/{S3_KEY_PREFIX}/{ts_path}"
+        heat_url = f"{CLOUDFRONT_URL}/{S3_KEY_PREFIX}/{heatmap_path}"
+        logger.info("Using CloudFront URLs:")        
         logger.info(f"  histogram: {hist_url}")
         logger.info(f"  timeseries: {ts_url}")
         logger.info(f"  heatmap: {heat_url}")
