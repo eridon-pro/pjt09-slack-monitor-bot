@@ -359,10 +359,30 @@ def fetch_post_text(conn, post_id):
     return row[0]
 
 
-def count_posts_since(conn, ts: float) -> int:
+def count_posts_since(conn, ts: float, channels=None, include_replies=False) -> int:
+    """
+    指定した時刻以降の投稿数をカウントする。
+    
+    :param conn: データベース接続
+    :param ts: 基準タイムスタンプ
+    :param channels: 対象チャネルのリスト（Noneなら全チャネル）
+    :param include_replies: Trueなら返信も含む、Falseなら親スレッドのみ
+    """
     cur = conn.cursor()
-    cur.execute(
-        "SELECT COUNT(*) FROM slack_posts WHERE ts > ? AND thread_ts = ts",
-        (ts,)
-    )
+    
+    # ベースクエリ
+    query = "SELECT COUNT(*) FROM slack_posts WHERE ts > ?"
+    params = [ts]
+    
+    # チャネル指定
+    if channels:
+        placeholders = ','.join('?' for _ in channels)
+        query += f" AND channel IN ({placeholders})"
+        params.extend(channels)
+    
+    # 返信を含むかどうか
+    if not include_replies:
+        query += " AND thread_ts = ts"
+    
+    cur.execute(query, params)
     return cur.fetchone()[0]

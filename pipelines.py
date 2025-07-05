@@ -45,22 +45,24 @@ def process_faq(db):
     1) bot-qa-dev チャンネルの親スレッド（質問）のみをクラスタリングして代表質問を生成
     2) RAG or スレッド回答の集約による回答生成
     3) extracted_items, extracted_item_types テーブルに登録
+    
+    Returns: True if processing was executed, False if skipped
     """
     logger.info("process_faq() called")
     # Threshold check: skip processing if too few new posts
     last_ts = fetch_last_import_ts(db)
-    new_count = count_posts_since(db, last_ts)
+    new_count = count_posts_since(db, last_ts, channels=[QUESTION_CH], include_replies=True)
     THRESHOLD = 10
     if new_count < THRESHOLD:
-        logger.info(f"[FAQ] Skipping FAQ processing: only {new_count} new posts (< threshold {THRESHOLD}).")
-        return
-    logger.info(f"[FAQ] Starting FAQ processing: {new_count} new posts (>= threshold {THRESHOLD}).")
+        logger.info(f"[FAQ] Skipping FAQ processing: only {new_count} new posts in QUESTION_CH (< threshold {THRESHOLD}).")
+        return False
+    logger.info(f"[FAQ] Starting FAQ processing: {new_count} new posts in QUESTION_CH (>= threshold {THRESHOLD}).")
     posts = fetch_posts_for_faq(db, QUESTION_CH, FAQ_WINDOW_DAYS)
     # 質問のみ（親スレッド）を対象にする
     posts = [p for p in posts if p["thread_ts"] == p["ts"]]
     if not posts:
         logger.info("No FAQ question posts found, skipping.")
-        return
+        return False
 
     # Use latest post timestamp as the reference for the cutoff
     max_ts = max(p["ts"] for p in posts)
@@ -72,7 +74,7 @@ def process_faq(db):
     logger.info(f"[FAQ] total fetched question posts: {len(posts)}, after window filter: {len(filtered)} (using max_ts={max_ts})")
     if not filtered:
         logger.info("No FAQ question posts in window, skipping.")
-        return
+        return False
     posts = filtered
 
     question_texts = [p["text"] for p in posts]
@@ -139,26 +141,30 @@ def process_faq(db):
             logger.info(f"[FAQ] inserted extracted_item_type for item_id={item_id}, type=faq")
         except Exception as e:
             logger.error(f"[FAQ] failed to insert extracted item for cluster {cluster_id}: {e}")
+    
+    return True
 
 
 def process_trend_topics(db):
     """
     bot-dev + bot-qa-dev の投稿から、コミュニティが興味を持つトピック上位5件を抽出する。
     クラスタリングし、3件以上の投稿を含むクラスタをサイズ順に上位5つ選択。
+    
+    Returns: True if processing was executed, False if skipped
     """
     logger.info("process_trend_topics() called")
     TOPIC_CHANNELS = [DEV_CH, QUESTION_CH]  # 例: ["bot-dev", "bot-qa-dev"]
     last_ts = fetch_last_import_ts(db)
-    new_count = count_posts_since(db, last_ts)
+    new_count = count_posts_since(db, last_ts, channels=TOPIC_CHANNELS, include_replies=False)
     THRESHOLD = 10
     if new_count < THRESHOLD:
-        logger.info(f"[Topics] Skipping trend topics: only {new_count} new posts (< threshold {THRESHOLD}).")
-        return
-    logger.info(f"[Topics] Starting trend topics processing: {new_count} new posts (>= threshold {THRESHOLD}).")
+        logger.info(f"[Topics] Skipping trend topics: only {new_count} new posts in topic channels (< threshold {THRESHOLD}).")
+        return False
+    logger.info(f"[Topics] Starting trend topics processing: {new_count} new posts in topic channels (>= threshold {THRESHOLD}).")
     posts = fetch_posts_for_topics(db, TOPIC_CHANNELS, FAQ_WINDOW_DAYS)
     if not posts:
         logger.info("No topic posts found, skipping.")
-        return
+        return False
 
     texts = [p["text"] for p in posts]
     post_ids = [p["id"] for p in posts]
@@ -211,6 +217,8 @@ def process_trend_topics(db):
             logger.info(f"[Topics] inserted trend_topic id={topic_id}, cluster={label}, size={len(cluster_texts)}, topic={topic_summary}")
         except Exception as e:
             logger.error(f"[Topics] failed to insert trend_topic for cluster={label}, size={len(cluster_texts)}, topic={topic_summary}: {e}")
+    
+    return True
 
 
 
@@ -218,20 +226,22 @@ def process_info_requests(db):
     """
     bot-dev + bot-qa-dev の投稿から、多くの人が求めている"情報リクエスト"を抽出し登録
     クラスタリングで3件以上の親スレッドを含むクラスターごとにLLMでリクエストフレーズを抽出してログに出力
+    
+    Returns: True if processing was executed, False if skipped
     """
     logger.info("process_info_requests() called")
     TOPIC_CHANNELS = [DEV_CH, QUESTION_CH]
     last_ts = fetch_last_import_ts(db)
-    new_count = count_posts_since(db, last_ts)
+    new_count = count_posts_since(db, last_ts, channels=TOPIC_CHANNELS, include_replies=False)
     THRESHOLD = 10
     if new_count < THRESHOLD:
-        logger.info(f"[InfoRequests] Skipping info requests: only {new_count} new posts (< threshold {THRESHOLD}).")
-        return
-    logger.info(f"[InfoRequests] Starting info requests processing: {new_count} new posts (>= threshold {THRESHOLD}).")
+        logger.info(f"[InfoRequests] Skipping info requests: only {new_count} new posts in topic channels (< threshold {THRESHOLD}).")
+        return False
+    logger.info(f"[InfoRequests] Starting info requests processing: {new_count} new posts in topic channels (>= threshold {THRESHOLD}).")
     posts = fetch_posts_for_topics(db, TOPIC_CHANNELS, FAQ_WINDOW_DAYS)
     if not posts:
         logger.info("No topic posts found, skipping.")
-        return
+        return False
 
     texts = [p["text"] for p in posts]
     post_ids = [p["id"] for p in posts]
@@ -292,5 +302,7 @@ def process_info_requests(db):
             logger.info(f"[InfoRequests] inserted info_request id={req_id}, cluster={label}, size={len(cluster['texts'])}")
         except Exception as e:
             logger.error(f"[InfoRequests] failed to insert info_request for cluster {label}: {e}")
+    
+    return True
 
 

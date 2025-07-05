@@ -180,21 +180,31 @@ def main():
     # bot-dev の一般投稿（トレンド候補） - 親スレッドのみ取得
     fetch_threads_only(db, DEV_CH, last_ts)
 
-    interim_ts = get_max_post_ts(db)
-    update_last_import_ts(db, interim_ts)
-    logging.info(f"Updated import_state (post-fetch) to {interim_ts}")
-
-    # 分類パイプライン呼び出し
+    # 分類パイプライン呼び出し（import_stateを更新する前に実行）
+    processing_occurred = False
     try:
-        process_faq(db)
+        if process_faq(db):
+            processing_occurred = True
+        if process_trend_topics(db):
+            processing_occurred = True
+        if process_info_requests(db):
+            processing_occurred = True
+        
+        # Slack投稿は常に実行（既存データがあれば）
         post_faq_to_slack(db)
-        process_trend_topics(db)
         post_trends_to_slack(db)
-        process_info_requests(db)
         post_info_requests_to_slack(db)
         notion_upsert_all(db)
     except Exception as e:
         logging.error(f"Error during processing pipelines: {e}")
+
+    # 何らかの処理が実行された場合のみimport_stateを更新
+    if processing_occurred:
+        interim_ts = get_max_post_ts(db)
+        update_last_import_ts(db, interim_ts)
+        logging.info(f"Updated import_state (post-pipeline) to {interim_ts}")
+    else:
+        logging.info("No processing occurred, import_state not updated")
 
     db.close()
     logging.info("Daily import complete")

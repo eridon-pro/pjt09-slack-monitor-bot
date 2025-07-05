@@ -27,6 +27,7 @@ ADMIN_CHANNEL    = os.getenv("ADMIN_CHANNEL")
 #BOT_DEV_CHANNEL  = os.getenv("BOT_DEV_CHANNEL")
 NOTION_TOKEN     = os.getenv("NOTION_TOKEN")
 NOTION_TREND_PAGE_ID   = os.getenv("NOTION_TREND_PAGE_ID")
+NOTION_TREND_URL = os.getenv("NOTION_TREND_URL")
 
 
 # ─── Database path ─────────────
@@ -46,10 +47,12 @@ def post_faq_to_slack(db, slack_token=SLACK_BOT_TOKEN, channel=ADMIN_CHANNEL):
     })
     blocks.append({"type": "divider"})
 
+    # Get the latest update date for display at the end
+    latest_ts = max(float(ts) for _, _, _, _, ts in rows) if rows else 0
+    latest_dt = datetime.fromtimestamp(latest_ts, timezone(timedelta(hours=9)))
+    latest_updated = latest_dt.strftime('%Y-%m-%d %H:%M JST')
+    
     for _, q, a, url, ts in rows:
-        # parse created_at as float timestamp or ISO string, then convert to JST
-        dt = datetime.fromtimestamp(float(ts), timezone(timedelta(hours=9)))
-        updated = dt.strftime('%Y-%m-%d %H:%M')
         text = f"*Q:* {q}\n\n*A:* {a}"
         if url:
             parts = url.split(':', 1)
@@ -58,15 +61,22 @@ def post_faq_to_slack(db, slack_token=SLACK_BOT_TOKEN, channel=ADMIN_CHANNEL):
                 text += f"\n\nこちらもご参照ください → <{link}|{label}>"
             else:
                 text += f"\n\nこちらもご参照ください → {url}"
-        text += f"\n\n_最終更新: {updated}_"
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
         blocks.append({"type": "divider"})
 
+    # Add latest update time before the link
     blocks.append({
         "type": "section",
         "text": {
             "type": "mrkdwn",
-            "text": "コミュニティトレンド分析: <https://www.notion.so/21408ac90f4c80a9b60ad7d250967ca9|Notion ページへ>"
+            "text": f"_最終更新: {latest_updated}_"
+        }
+    })
+    blocks.append({
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": f"<{NOTION_TREND_URL}|コミュニティトレンド分析> ページへ"
         }
     })
 
@@ -102,14 +112,16 @@ def post_trends_to_slack(db, slack_token=SLACK_BOT_TOKEN, channel=ADMIN_CHANNEL)
         logger.info("No trend topics to post to Slack.")
         return
 
+    # Get the latest registration date for display at the end
+    latest_ts = max(float(ts) for _, _, _, ts in top_n) if top_n else 0
+    latest_dt = datetime.fromtimestamp(latest_ts, timezone(timedelta(hours=9)))
+    latest_created_at_str = latest_dt.strftime('%Y-%m-%d %H:%M JST')
+    
     for idx, (_, topic_text, size, ts) in enumerate(top_n):
-        # Convert stored UTC timestamp to JST
-        dt = datetime.fromtimestamp(float(ts), timezone.utc).astimezone(timezone(timedelta(hours=9)))
-        created_at_str = dt.strftime('%Y-%m-%d %H:%M')
         if idx == 0:
-            text = f":sports_medal: *トピック:* {topic_text}\n*投稿数:* {size}\n_登録日時: {created_at_str}_"
+            text = f":sports_medal: *トピック:* {topic_text}\n*投稿数:* {size}"
         else:
-            text = f"*トピック:* {topic_text}\n*投稿数:* {size}\n_登録日時: {created_at_str}_"
+            text = f"*トピック:* {topic_text}\n*投稿数:* {size}"
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
         blocks.append({"type": "divider"})
 
@@ -117,10 +129,18 @@ def post_trends_to_slack(db, slack_token=SLACK_BOT_TOKEN, channel=ADMIN_CHANNEL)
         "type": "section",
         "text": {
             "type": "mrkdwn",
-            "text": "コミュニティトレンド分析: <https://www.notion.so/21408ac90f4c80a9b60ad7d250967ca9|Notion ページへ>"
+            "text": f"_最終更新: {latest_created_at_str}_"
         }
     })
 
+    blocks.append({
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": f"<{NOTION_TREND_URL}|コミュニティトレンド分析> ページへ"
+        }
+    })
+    
     client.chat_postMessage(
         channel=channel,
         text="📈 最新のトレンドトピックをお届けします",
@@ -143,6 +163,11 @@ def post_info_requests_to_slack(db, slack_token=SLACK_BOT_TOKEN, channel=ADMIN_C
     )
     rows = cur.fetchall()
 
+    # Get the latest update date for display at the end
+    latest_ts = max(float(ts) for _, _, _, ts in rows) if rows else 0
+    latest_dt = datetime.fromtimestamp(latest_ts, timezone(timedelta(hours=9)))
+    latest_updated = latest_dt.strftime('%Y-%m-%d %H:%M JST')
+    
     text = "<!channel> 📣 *受講生から多く求められている情報(過去7日間分)*\n\n"
     for idx, (req_id, req_text, size, ts) in enumerate(rows, start=1):
         try:
@@ -153,7 +178,8 @@ def post_info_requests_to_slack(db, slack_token=SLACK_BOT_TOKEN, channel=ADMIN_C
         for item in items:
             text += f"- {item}\n"
         text += "\n"
-    text += "コミュニティトレンド分析: https://www.notion.so/21408ac90f4c80a9b60ad7d250967ca9\n"
+    text += f"_最終更新: {latest_updated}_\n"
+    text += f"<{NOTION_TREND_URL}|コミュニティトレンド分析> ページへ\n"
 
     client.chat_postMessage(channel=channel, text=text)
 
@@ -187,6 +213,11 @@ def notion_upsert_faq(db, notion, page_id):
         "heading_2": {"rich_text": [{"type": "text", "text": {"content": "💡 過去7日間のよくある質問(FAQ)"}}]}
     }]
     children.append({"object": "block", "type": "divider", "divider": {}})
+
+    # Get the latest update date for display at the end
+    latest_ts = max(float(ts) for _, _, _, ts in rows) if rows else 0
+    latest_dt = datetime.fromtimestamp(latest_ts, timezone(timedelta(hours=9)))
+    latest_updated = latest_dt.strftime("%Y-%m-%d %H:%M JST")
 
     for title, answer, url, ts in rows:
         # Replace question heading_3 block with paragraph block with bold markdown
@@ -236,15 +267,14 @@ def notion_upsert_faq(db, notion, page_id):
                     "type": "paragraph",
                     "paragraph": {"rich_text": [{"type": "text", "text": {"content": paragraph}}]}
                 })
-        # timestamp
-        dt = datetime.fromtimestamp(float(ts), timezone(timedelta(hours=9)))
-        updated = dt.strftime("%Y-%m-%d %H:%M")
-        children.append({
-            "object": "block",
-            "type": "paragraph",
-            "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"最終更新: {updated}"}}]}
-        })
         children.append({"object": "block", "type": "divider", "divider": {}})
+
+    # Add latest update time at the end of FAQ section
+    children.append({
+        "object": "block",
+        "type": "paragraph",
+        "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"最終更新: {latest_updated}"}}]}
+    })
 
     # Do not append batch timestamp here; it will be appended at the end of notion_upsert_all
     notion.blocks.children.append(block_id=page_id, children=children)
@@ -268,12 +298,20 @@ def notion_upsert_trends(db, notion, page_id):
         "type": "heading_2",
         "heading_2": {
             "rich_text": [
-                {"type": "text", "text": {"content": f"📈 過去7日間のトレンドトピック{count}位"}}
+                {"type": "text", "text": {"content": f"\n📈 過去7日間のトレンドトピック{count}位"}}
             ]
         }
     })
     # Divider
     children.append({"object": "block", "type": "divider", "divider": {}})
+
+    # Get the latest registration date for display at the end
+    latest_ts = max(float(ts) for _, _, _, ts in top_n) if top_n else 0
+    try:
+        latest_dt = datetime.fromtimestamp(latest_ts, timezone(timedelta(hours=9)))
+    except Exception:
+        latest_dt = datetime.now(timezone(timedelta(hours=9)))
+    latest_created = latest_dt.strftime('%Y-%m-%d %H:%M JST')
 
     for idx, (_, topic_text, size, ts) in enumerate(top_n, 1):
         # Heading_3 block for topic
@@ -283,18 +321,12 @@ def notion_upsert_trends(db, notion, page_id):
             "type": "heading_3",
             "heading_3": {
                 "rich_text": [
-                    #{"type": "text", "text": {"content": f"{idx}. {topic_text}"}}
                     {"type": "text", "text": {"content": content_text}}
                 ]
             }
         })
-        # Parse created_at as JST
-        try:
-            dt = datetime.fromtimestamp(float(ts), timezone(timedelta(hours=9)))
-        except Exception:
-            dt = datetime.now(timezone(timedelta(hours=9)))
-        created = dt.strftime('%Y-%m-%d %H:%M')
-        info_text = f"投稿数: {size}  |  登録日時: {created}"
+        # Only show post count, remove registration date
+        info_text = f"投稿数: {size}"
         children.append({
             "object": "block",
             "type": "paragraph",
@@ -306,6 +338,17 @@ def notion_upsert_trends(db, notion, page_id):
         })
         # Divider after each topic
         children.append({"object": "block", "type": "divider", "divider": {}})
+
+    # Add latest registration time at the end of trends section
+    children.append({
+        "object": "block",
+        "type": "paragraph",
+        "paragraph": {
+            "rich_text": [
+                {"type": "text", "text": {"content": f"最終更新: {latest_created}"}}
+            ]
+        }
+    })
 
     notion.blocks.children.append(block_id=page_id, children=children)
     logger.info(f"Updated Notion page {page_id} with trend topics.")
@@ -330,12 +373,20 @@ def notion_upsert_info_requests(db, notion, page_id):
         "type": "heading_2",
         "heading_2": {
             "rich_text": [
-                {"type": "text", "text": {"content": "📣 受講生から多く求められている情報(過去7日間分)"}}
+                {"type": "text", "text": {"content": "\n📣 受講生から多く求められている情報(過去7日間分)"}}
             ]
         }
     })
     # Divider
     children.append({"object": "block", "type": "divider", "divider": {}})
+
+    # Get the latest registration date for display at the end
+    latest_ts = max(float(ts) for _, _, _, ts in rows) if rows else 0
+    try:
+        latest_dt = datetime.fromtimestamp(latest_ts, timezone(timedelta(hours=9)))
+    except Exception:
+        latest_dt = datetime.now(timezone(timedelta(hours=9)))
+    latest_created = latest_dt.strftime('%Y-%m-%d %H:%M JST')
 
     for idx, (_id, req_text, size, ts) in enumerate(rows, start=1):
         # Decode JSON list or single string
@@ -370,23 +421,19 @@ def notion_upsert_info_requests(db, notion, page_id):
                 }
             })
 
-        # Add timestamp
-        try:
-            dt = datetime.fromtimestamp(float(ts), timezone(timedelta(hours=9)))
-        except Exception:
-            dt = datetime.now(timezone(timedelta(hours=9)))
-        created = dt.strftime('%Y-%m-%d %H:%M')
-        children.append({
-            "object": "block",
-            "type": "paragraph",
-            "paragraph": {
-                "rich_text": [
-                    {"type": "text", "text": {"content": f"登録日時: {created}"}}
-                ]
-            }
-        })
         # Divider after each category
         children.append({"object": "block", "type": "divider", "divider": {}})
+
+    # Add latest registration time at the end of info requests section
+    children.append({
+        "object": "block",
+        "type": "paragraph",
+        "paragraph": {
+            "rich_text": [
+                {"type": "text", "text": {"content": f"最終更新: {latest_created}"}}
+            ]
+        }
+    })
 
     # Append to page
     notion.blocks.children.append(block_id=page_id, children=children)
@@ -398,7 +445,7 @@ def append_batch_timestamp(children):
     Append a batch execution timestamp block in JST to the given children list.
     """
     now = datetime.now(timezone(timedelta(hours=9)))
-    batch_time = now.strftime("%Y-%m-%d %H:%M")
+    batch_time = now.strftime("%Y-%m-%d %H:%M JST")
     children.append({
         "object": "block",
         "type": "paragraph",
@@ -406,7 +453,7 @@ def append_batch_timestamp(children):
             "rich_text": [
                 {
                     "type": "text",
-                    "text": {"content": f"バッチ実行日時: {batch_time}"}
+                    "text": {"content": f"\n\nバッチ実行日時: {batch_time}"}
                 }
             ]
         }
