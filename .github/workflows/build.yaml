@@ -164,18 +164,15 @@ jobs:
   signing:
     needs: build
     runs-on: ubuntu-latest
-    steps:    
-      # 7-1. Cosign をインストール
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@main
-
-      # 7-2. GitHub OIDC トークンを使って署名
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
+    steps:
       - name: Sign GHCR image with Cosign
-        env:
-          DIGEST: ${{ needs.build.outputs.image-digest }}
-          IMAGE_URI: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:${{ github.sha }}
-        run: |
-          cosign sign --yes ${IMAGE_URI}@${DIGEST}
+        uses: sigstore/cosign-action@v2
+        with:
+          image: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:${{ github.sha }}
   
   # 8. Container Image Scan by Trivy
   image_scan:
@@ -216,11 +213,10 @@ jobs:
   #　１０. Notification to Slack
   notify_slack:
     if: always()
-    needs: sbom
     runs-on: ubuntu-latest
     steps:
       - name: "Slack: CI Success"
-        if: success()
+        if: ${{ job.status == 'success' }}
         uses: slackapi/slack-github-action@v1.23.0
         with:
           payload: |
@@ -232,7 +228,7 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
       - name: "Slack: CI Failure"
-        if: failure()
+        if: ${{ job.status == 'failure' }}
         uses: slackapi/slack-github-action@v1.23.0
         with:
           payload: |
@@ -244,7 +240,7 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
       - name: "Slack: CI Cancelled"
-        if: cancelled()
+        if: ${{ job.status == 'cancelled' }}
         uses: slackapi/slack-github-action@v1.23.0
         with:
           payload: |
