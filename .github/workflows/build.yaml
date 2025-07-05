@@ -170,9 +170,10 @@ jobs:
       - name: Generate SBOM with Anchore SBOM Action
         uses: anchore/sbom-action@main
         with:
-          image: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:${{ github.sha }}
-          output_format: cyclonedx-json
-          output_file: sbom-${{ github.sha }}.json
+          #image: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:${{ github.sha }}
+          image: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          format: cyclonedx-json
+          output-file: sbom-${{ github.sha }}.json
 
       - name: Upload SBOM Artifact
         uses: actions/upload-artifact@v4
@@ -192,7 +193,8 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           #image-ref: ghcr.io/${{ github.repository }}
-          image-ref: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:${{ github.sha }}
+          #image-ref: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:${{ github.sha }}
+          image-ref: ghcr.io/${{ github.repository }}:${{ github.sha }}
           format: json
           output: reports/ghcr-trivy-report.json
           exit-code: '1'
@@ -219,7 +221,8 @@ jobs:
 
       - name: Sign GHCR image with Cosign
         env:
-          IMAGE_URI: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:${{ github.sha }}
+          #IMAGE_URI: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:${{ github.sha }}
+          IMAGE_URI: ghcr.io/${{ github.repository }}:${{ github.sha }}
           DIGEST: ${{ needs.build.outputs.image-digest }}
         run: cosign sign --yes ${IMAGE_URI}@${DIGEST}
   
