@@ -88,10 +88,10 @@ jobs:
         run: pip install safety pip-audit
       - name: Run pip-audit on requirements
         run: pip-audit -r requirements.txt -f json > reports/pip-audit.json
-      - name: Run Safety and allow non-zero exit
+      - name: Run Safety
         run: |
           pip install safety
-          safety check --json --file=requirements.txt --exit-zero > reports/safety.json
+          safety check --json --file=requirements.txt > reports/safety.json
       - name: Upload Reports
         uses: actions/upload-artifact@v4
         with:
@@ -215,7 +215,7 @@ jobs:
   #　１０. Notification to Slack
   notify_slack:
     #if: always()
-    needs: sbom
+    #needs: sbom
     runs-on: ubuntu-latest
     steps:
       - name: "Slack: CI Success"
