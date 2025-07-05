@@ -71,7 +71,7 @@ jobs:
   #    - name: Run pytest
   #      run: pytest --maxfail=1 --disable-warnings --junitxml=reports/junit.xml
   #    - name: Upload Test Report
-  #      uses: actions/upload-artifact@v3
+  #      uses: actions/upload-artifact@v4
   #      with:
   #        name: junit-report
   #        path: reports/junit.xml
@@ -175,7 +175,7 @@ jobs:
           output_file: sbom-${{ github.sha }}.json
 
       - name: Upload SBOM Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: sbom
           path: sbom-${{ github.sha }}.json
