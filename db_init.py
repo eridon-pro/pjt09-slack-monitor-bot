@@ -4,7 +4,8 @@ import sqlite3
 conn = sqlite3.connect("scores.db")
 cur = conn.cursor()
 # 累計スコア保持
-cur.execute("""
+cur.execute(
+    """
 CREATE TABLE IF NOT EXISTS user_scores (
     user_id TEXT PRIMARY KEY,
     post_count INTEGER DEFAULT 0,
@@ -13,10 +14,12 @@ CREATE TABLE IF NOT EXISTS user_scores (
     positive_feedback_count INTEGER DEFAULT 0,
     violation_count INTEGER DEFAULT 0
 )
-""")
+"""
+)
 
 # 時系列イベントログ
-cur.execute("""
+cur.execute(
+    """
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL,             -- 投稿者
@@ -27,20 +30,24 @@ CREATE TABLE IF NOT EXISTS events (
     scored INTEGER DEFAULT 0,          -- 加点済みなら1, 未加点なら0
     violation_rule TEXT DEFAULT NULL   -- ガイドライン違反と判定されたルール番号
 )
-""")
+"""
+)
 
 # ポジティブリアクションキャッシュ（永続化キャッシュ）
-cur.execute("""
+cur.execute(
+    """
 CREATE TABLE IF NOT EXISTS reaction_judgement (
     reaction_name TEXT PRIMARY KEY,
     is_positive INTEGER,
     last_checked_ts REAL
 )
-""")
+"""
+)
 
 
 # PJT10： Slack投稿全件保存
-cur.execute("""
+cur.execute(
+    """
 CREATE TABLE IF NOT EXISTS slack_posts (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     ts          REAL    NOT NULL,
@@ -50,10 +57,12 @@ CREATE TABLE IF NOT EXISTS slack_posts (
     thread_ts   REAL    NOT NULL,
     item_type   TEXT    DEFAULT NULL
 )
-""")
+"""
+)
 
 # PJT10: 抽出結果まとめテーブル
-cur.execute("""
+cur.execute(
+    """
 CREATE TABLE IF NOT EXISTS extracted_items (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     post_ids        TEXT    NOT NULL,  -- JSON list of slack_posts.id
@@ -62,28 +71,34 @@ CREATE TABLE IF NOT EXISTS extracted_items (
     answer          TEXT    DEFAULT NULL,
     source_url      TEXT    DEFAULT NULL
 )
-""")
+"""
+)
 
 # PJT10: 抽出種別タグ付け
-cur.execute("""
+cur.execute(
+    """
 CREATE TABLE IF NOT EXISTS extracted_item_types (
     item_id     INTEGER NOT NULL,  -- FK → extracted_items.id
     type        TEXT    NOT NULL,  -- 'faq','topic','info'
     PRIMARY KEY (item_id, type),
     FOREIGN KEY (item_id) REFERENCES extracted_items(id)
 )
-""")
+"""
+)
 
 # PJT10: 最後のPostのTS保存
-cur.execute("""
+cur.execute(
+    """
 CREATE TABLE IF NOT EXISTS import_state (
   key TEXT PRIMARY KEY,
   last_ts REAL
 )
-""")
+"""
+)
 
 # PJT10: トレンドトピックまとめテーブル
-cur.execute("""
+cur.execute(
+    """
 CREATE TABLE IF NOT EXISTS trend_topics (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     label       INTEGER NOT NULL,     -- クラスタ番号
@@ -91,10 +106,12 @@ CREATE TABLE IF NOT EXISTS trend_topics (
     size        INTEGER NOT NULL,     -- クラスタの投稿数
     created_at  REAL    NOT NULL      -- 登録時タイムスタンプ (UNIX 秒)
 )
-""")
+"""
+)
 
 # PJT10: 情報リクエストまとめテーブル
-cur.execute("""
+cur.execute(
+    """
 CREATE TABLE IF NOT EXISTS info_requests (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     label         INTEGER NOT NULL,    -- クラスタ番号
@@ -102,8 +119,11 @@ CREATE TABLE IF NOT EXISTS info_requests (
     size          INTEGER NOT NULL,    -- クラスタの投稿数
     created_at    REAL    NOT NULL     -- 登録時タイムスタンプ (UNIX 秒)
 )
-""")
+"""
+)
 
 conn.commit()
 conn.close()
-print("Initialized scores.db with user_scores, events, reaction_judgement, slack_posts, extracted_items, and extracted_item_types tables.")
+print(
+    "Initialized scores.db with user_scores, events, reaction_judgement, slack_posts, extracted_items, and extracted_item_types tables."
+)

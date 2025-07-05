@@ -10,6 +10,7 @@ slack_client = WebClient(token=os.getenv("SLACK_BOT_TOKEN"))
 USER_CACHE = {}
 CHANNEL_CACHE = {}
 
+
 def resolve_user(user_id: str) -> str:
     """
     Slack user_id を人間が読める表示名に変換。
@@ -21,11 +22,16 @@ def resolve_user(user_id: str) -> str:
     try:
         res = slack_client.users_info(user=user_id)
         profile = res["user"]["profile"]
-        name = profile.get("display_name") or profile.get("real_name") or res["user"]["name"]
+        name = (
+            profile.get("display_name")
+            or profile.get("real_name")
+            or res["user"]["name"]
+        )
     except SlackApiError:
         name = user_id
     USER_CACHE[user_id] = name
     return name
+
 
 def resolve_channel(channel_id: str) -> str:
     """
@@ -42,11 +48,13 @@ def resolve_channel(channel_id: str) -> str:
     CHANNEL_CACHE[channel_id] = name
     return name
 
+
 def humanize_mentions(text: str) -> str:
     """
     テキスト中の <@UXXXXXXX> を @display_name に置換。
     複数メンションにも対応。
     """
+
     def repl(match):
         uid = match.group(1)
         uname = resolve_user(uid)

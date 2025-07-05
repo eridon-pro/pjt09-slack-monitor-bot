@@ -3,11 +3,12 @@ import logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
+
 load_dotenv()  # カレントディレクトリの .env を読み込む
 import os
 import glob
@@ -27,19 +28,19 @@ from botocore.exceptions import ClientError
 
 # --- Configuration ---
 # All environment variables loaded here as module-level constants
-DB_PATH         = os.getenv("SCORES_DB_PATH", "scores.db")
-NOTION_TOKEN    = os.getenv("NOTION_TOKEN")
-NOTION_PAGE_ID  = os.getenv("NOTION_VIOLATION_PAGE_ID")
-#REMOTE_USER     = os.getenv("REMOTE_USER")
-#REMOTE_HOST     = os.getenv("REMOTE_HOST")
-#REMOTE_PATH     = os.getenv("REMOTE_PATH")
-#HOST_URL        = os.getenv("HOST_URL")
-S3_BUCKET       = os.getenv("S3_BUCKET")
-S3_REGION       = os.getenv("AWS_REGION", "ap-northeast-1")
-s3_client       = boto3.client("s3", region_name=S3_REGION)
-CLOUDFRONT_URL  = os.getenv("CLOUDFRONT_URL")
-S3_KEY_PREFIX   = os.getenv("S3_KEY_PREFIX", "").strip("/")
-AWS_ACCESS_KEY_ID     = os.getenv("AWS_ACCESS_KEY_ID")
+DB_PATH = os.getenv("SCORES_DB_PATH", "scores.db")
+NOTION_TOKEN = os.getenv("NOTION_TOKEN")
+NOTION_PAGE_ID = os.getenv("NOTION_VIOLATION_PAGE_ID")
+# REMOTE_USER     = os.getenv("REMOTE_USER")
+# REMOTE_HOST     = os.getenv("REMOTE_HOST")
+# REMOTE_PATH     = os.getenv("REMOTE_PATH")
+# HOST_URL        = os.getenv("HOST_URL")
+S3_BUCKET = os.getenv("S3_BUCKET")
+S3_REGION = os.getenv("AWS_REGION", "ap-northeast-1")
+s3_client = boto3.client("s3", region_name=S3_REGION)
+CLOUDFRONT_URL = os.getenv("CLOUDFRONT_URL")
+S3_KEY_PREFIX = os.getenv("S3_KEY_PREFIX", "").strip("/")
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 GUIDELINES_PATH = os.getenv("GUIDELINES_PATH", "./utils/guidelines.txt")
 
@@ -50,18 +51,19 @@ HEADERS = {
 }
 
 PERIOD_LABELS = {
-    "all":     "全期間",
-    "weekly":  "過去7日間",
+    "all": "全期間",
+    "weekly": "過去7日間",
     "monthly": "過去30日間",
 }
 
-#def upload_to_server(file_path: str):
+# def upload_to_server(file_path: str):
 #    """
 #    Upload a file to the remote server via SCP.
 #    """
 #    dest = f"{REMOTE_USER}@{REMOTE_HOST}:{REMOTE_PATH}/"
 #    subprocess.run(["scp", file_path, dest], check=True)
 #    logger.info(f"Uploaded '{file_path}' to {REMOTE_HOST}:{REMOTE_PATH}")
+
 
 def fetch_violation_counts(db_path: str, since_ts: float = None) -> Counter:
     """
@@ -84,12 +86,13 @@ def fetch_violation_counts(db_path: str, since_ts: float = None) -> Counter:
     cur.execute(sql, params)
     counter = Counter()
     for (rule_str,) in cur.fetchall():
-        for r in rule_str.split(','):
+        for r in rule_str.split(","):
             r = r.strip()
             if r:
                 counter[r] += 1
     conn.close()
     return counter
+
 
 def fetch_time_series_counts(db_path: str, since_ts: float = None) -> dict:
     """
@@ -112,14 +115,19 @@ def fetch_time_series_counts(db_path: str, since_ts: float = None) -> dict:
     cur.execute(sql, params)
     data = defaultdict(lambda: Counter())
     for ts_epoch, rule_str in cur.fetchall():
-        dt = datetime.fromtimestamp(ts_epoch, tz=timezone.utc).astimezone(zoneinfo.ZoneInfo("Asia/Tokyo")).date()
+        dt = (
+            datetime.fromtimestamp(ts_epoch, tz=timezone.utc)
+            .astimezone(zoneinfo.ZoneInfo("Asia/Tokyo"))
+            .date()
+        )
         date_str = dt.isoformat()
-        for r in rule_str.split(','):
+        for r in rule_str.split(","):
             r = r.strip()
             if r:
                 data[date_str][r] += 1
     conn.close()
     return data
+
 
 def fetch_weekday_hour_heatmap(db_path: str, since_ts: float = None) -> dict:
     """
@@ -142,12 +150,15 @@ def fetch_weekday_hour_heatmap(db_path: str, since_ts: float = None) -> dict:
     cur.execute(sql, params)
     heatmap = defaultdict(int)
     for (ts_epoch,) in cur.fetchall():
-        dt = datetime.fromtimestamp(ts_epoch, tz=timezone.utc).astimezone(zoneinfo.ZoneInfo("Asia/Tokyo"))
+        dt = datetime.fromtimestamp(ts_epoch, tz=timezone.utc).astimezone(
+            zoneinfo.ZoneInfo("Asia/Tokyo")
+        )
         weekday = dt.weekday()
         hour = dt.hour
         heatmap[(weekday, hour)] += 1
     conn.close()
     return heatmap
+
 
 def plot_violation_rule_counts(counts: Counter, period_name: str, output_path: str):
     # Ensure X-axis shows all possible rule numbers from guidelines
@@ -156,7 +167,7 @@ def plot_violation_rule_counts(counts: Counter, period_name: str, output_path: s
     all_rules = []
     for line in all_guidelines[1:]:
         # assume format 'N. description'
-        num = line.split('.')[0].strip()
+        num = line.split(".")[0].strip()
         if num.isdigit():
             all_rules.append(num)
     rules = sorted(all_rules, key=lambda x: int(x))
@@ -164,18 +175,23 @@ def plot_violation_rule_counts(counts: Counter, period_name: str, output_path: s
     values = [counts.get(r, 0) for r in rules]
 
     plt.figure(figsize=(10, 6))
-    plt.bar(rule_nums, values, color='red')
+    plt.bar(rule_nums, values, color="red")
     # only horizontal grid lines for histogram
-    plt.grid(axis='y')
+    plt.grid(axis="y")
     plt.xlabel("ガイドライン規約違反となったルール番号", fontsize=16)
     plt.ylabel("件数", fontsize=16)
     plt.yticks(fontsize=16)
-    plt.title(f"ガイドライン規約違反となったルール番号の傾向 ({period_name})", fontsize=24)
+    plt.title(
+        f"ガイドライン規約違反となったルール番号の傾向 ({period_name})", fontsize=24
+    )
     plt.xticks(rule_nums, rules, fontsize=16)
     plt.tight_layout()
     plt.savefig(output_path)
     plt.close()
-    logger.info(f"[{period_name}] ルール別発生件数グラフを '{output_path}' に保存しました。")
+    logger.info(
+        f"[{period_name}] ルール別発生件数グラフを '{output_path}' に保存しました。"
+    )
+
 
 def plot_time_series(data: dict, period_name: str, output_path: str):
     # data: {date_str: {rule: count}}
@@ -198,17 +214,20 @@ def plot_time_series(data: dict, period_name: str, output_path: str):
         if date_objs:
             min_date = min(date_objs)
             max_date = min(max(date_objs), yesterday)
-            dates = [min_date + timedelta(days=i) for i in range((max_date - min_date).days + 1)]
+            dates = [
+                min_date + timedelta(days=i)
+                for i in range((max_date - min_date).days + 1)
+            ]
         else:
             dates = []
     plt.figure(figsize=(12, 6))
     for rule in all_rules:
         y = [data[d.isoformat()].get(rule, 0) for d in dates]
-        plt.plot(dates, y, marker='o', label=f"Rule {rule}")
+        plt.plot(dates, y, marker="o", label=f"Rule {rule}")
     plt.xlabel("日時", fontsize=16)
     plt.ylabel("件数", fontsize=16)
     plt.title(f"ガイドライン規約違反となったルールの推移 ({period_name})", fontsize=24)
-    plt.grid(axis='y')
+    plt.grid(axis="y")
     ax = plt.gca()
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%m/%d"))
     # X軸の目盛り設定：全期間は自動調整、その他は日ごと
@@ -221,10 +240,10 @@ def plot_time_series(data: dict, period_name: str, output_path: str):
     ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
     # Place legend inside the plot at top center, allowing multiple columns
     plt.legend(
-        loc='upper center',
+        loc="upper center",
         bbox_to_anchor=(0.5, 0.9),
         ncol=min(len(all_rules), 5),
-        fontsize=14
+        fontsize=14,
     )
     ax = plt.gca()
     # Set x-axis limits to span exactly from first to last date (yesterday)
@@ -240,51 +259,74 @@ def plot_time_series(data: dict, period_name: str, output_path: str):
     plt.close()
     logger.info(f"[{period_name}] 時系列グラフを '{output_path}' に保存しました。")
 
+
 def plot_heatmap(heatmap: dict, period_name: str, output_path: str):
     # heatmap: {(weekday, hour): count}
     import numpy as np
+
     data = np.zeros((7, 24), dtype=int)
     for (weekday, hour), count in heatmap.items():
         data[weekday, hour] = count
     plt.figure(figsize=(12, 8))
-    im = plt.imshow(data, aspect='auto', cmap='Reds')
-    #im = plt.imshow(data, aspect='auto', cmap='terrain')
+    im = plt.imshow(data, aspect="auto", cmap="Reds")
+    # im = plt.imshow(data, aspect='auto', cmap='terrain')
 
     # Set major ticks at the center of each cell
-    plt.xticks(ticks=np.arange(24), labels=[f"{h}:00" for h in range(0,24)], rotation=45, fontsize=12)
-    plt.yticks(ticks=np.arange(7), labels=["月", "火", "水", "木", "金", "土", "日"], fontsize=12)
+    plt.xticks(
+        ticks=np.arange(24),
+        labels=[f"{h}:00" for h in range(0, 24)],
+        rotation=45,
+        fontsize=12,
+    )
+    plt.yticks(
+        ticks=np.arange(7),
+        labels=["月", "火", "水", "木", "金", "土", "日"],
+        fontsize=12,
+    )
     # Set minor ticks at cell boundaries
-    plt.gca().set_xticks(np.arange(-.5, 24, 1), minor=True)
-    plt.gca().set_yticks(np.arange(-.5, 7, 1), minor=True)
+    plt.gca().set_xticks(np.arange(-0.5, 24, 1), minor=True)
+    plt.gca().set_yticks(np.arange(-0.5, 7, 1), minor=True)
     # Draw gridlines for minor ticks (cell boundaries)
-    plt.grid(which="minor", color="gray", linestyle='-', linewidth=0.5)
+    plt.grid(which="minor", color="gray", linestyle="-", linewidth=0.5)
     # Remove default major grid
     plt.grid(False, which="major")
 
     # Annotate each cell with its count, centered
     for y in range(data.shape[0]):
         for x in range(data.shape[1]):
-            plt.text(x, y, str(data[y, x]), ha="center", va="center", color="black" if data[y, x] < data.max()/2 else "white", fontsize=10)
+            plt.text(
+                x,
+                y,
+                str(data[y, x]),
+                ha="center",
+                va="center",
+                color="black" if data[y, x] < data.max() / 2 else "white",
+                fontsize=10,
+            )
 
     import matplotlib.ticker as ticker
+
     cbar = plt.colorbar(
         im,
-        orientation='horizontal',
+        orientation="horizontal",
         fraction=0.1,
         pad=0.15,
         aspect=40,
-        label='ガイドライン規約違反件数'
+        label="ガイドライン規約違反件数",
     )
     cbar.ax.tick_params(labelsize=14)
     cbar.ax.xaxis.label.set_fontsize(14)
     cbar.ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
     plt.xlabel("時間帯", fontsize=16)
     plt.ylabel("曜日", fontsize=16)
-    plt.title(f"ガイドライン規約違反ヒートマップ (曜日vs時間帯) ({period_name})", fontsize=24)
+    plt.title(
+        f"ガイドライン規約違反ヒートマップ (曜日vs時間帯) ({period_name})", fontsize=24
+    )
     plt.tight_layout()
     plt.savefig(output_path)
     plt.close()
     logger.info(f"[{period_name}] ヒートマップを '{output_path}' に保存しました。")
+
 
 def upload_image_to_notion(image_path: str) -> dict:
     """
@@ -305,7 +347,10 @@ def upload_image_to_notion(image_path: str) -> dict:
 
     # ここではNotionの外部URLにアップロード済みである前提で、画像ファイル名をURLにした簡易例を返す
     # 実際にはS3やImgur等にアップロードしてURLを取得してください
-    raise RuntimeError("upload_image_to_notion() は画像アップロード済みのURLを返すように実装してください。")
+    raise RuntimeError(
+        "upload_image_to_notion() は画像アップロード済みのURLを返すように実装してください。"
+    )
+
 
 def append_image_block_to_notion(page_id: str, image_url: str, caption: str = None):
     """
@@ -324,13 +369,16 @@ def append_image_block_to_notion(page_id: str, image_url: str, caption: str = No
             }
         ]
     }
-    #if caption:
+    # if caption:
     #    data["children"][0]["image"]["caption"] = [{"type": "text", "text": {"content": caption}}]
 
     res = requests.patch(url, headers=HEADERS, json=data)
     if res.status_code != 200:
-        raise RuntimeError(f"Failed to append image block to Notion: {res.status_code} {res.text}")
+        raise RuntimeError(
+            f"Failed to append image block to Notion: {res.status_code} {res.text}"
+        )
     logger.info(f"Notionページに画像を追加しました: {caption}")
+
 
 def clear_page_children(page_id: str):
     """
@@ -342,6 +390,7 @@ def clear_page_children(page_id: str):
     for child in res.json().get("results", []):
         del_url = f"https://api.notion.com/v1/blocks/{child['id']}"
         requests.delete(del_url, headers=HEADERS).raise_for_status()
+
 
 def load_guidelines(path: str = None) -> list[str]:
     """
@@ -361,6 +410,7 @@ def load_guidelines(path: str = None) -> list[str]:
             rules.append(line)
     return rules
 
+
 def append_guidelines_to_notion(page_id: str, guidelines: list[str]):
     """
     Overwrite the section of the given Notion page with:
@@ -374,32 +424,35 @@ def append_guidelines_to_notion(page_id: str, guidelines: list[str]):
 
     children = []
     if header:
-        children.append({
-            "object": "block",
-            "type": "heading_2",
-            "heading_2": {
-                "rich_text": [
-                    {"type": "text", "text": {"content": header}}
-                ]
+        children.append(
+            {
+                "object": "block",
+                "type": "heading_2",
+                "heading_2": {
+                    "rich_text": [{"type": "text", "text": {"content": header}}]
+                },
             }
-        })
+        )
     for rule in rules:
-        children.append({
-            "object": "block",
-            "type": "paragraph",
-            "paragraph": {
-                "rich_text": [
-                    {"type": "text", "text": {"content": rule}}
-                ]
+        children.append(
+            {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [{"type": "text", "text": {"content": rule}}]
+                },
             }
-        })
+        )
 
     # 2. Append new blocks
     url = f"https://api.notion.com/v1/blocks/{page_id}/children"
     res = requests.patch(url, headers=HEADERS, json={"children": children})
     if res.status_code != 200:
-        raise RuntimeError(f"Failed to append guidelines to Notion: {res.status_code} {res.text}")
+        raise RuntimeError(
+            f"Failed to append guidelines to Notion: {res.status_code} {res.text}"
+        )
     logger.info("Notion page にガイドライン一覧を上書きしました。")
+
 
 # --- append update timestamp to Notion ---
 def append_update_timestamp(page_id: str):
@@ -411,9 +464,17 @@ def append_update_timestamp(page_id: str):
     url = f"https://api.notion.com/v1/blocks/{page_id}/children"
     data = {
         "children": [
-            {"object":"block","type":"paragraph","paragraph":{"rich_text":[{"type":"text","text":{"content":""}}]}},
-            {"object":"block","type":"paragraph","paragraph":{"rich_text":[{"type":"text","text":{"content":""}}]}},
-            #{"object":"block","type":"paragraph","paragraph":{"rich_text":[{"type":"text","text":{"content":""}}]}},
+            {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {"rich_text": [{"type": "text", "text": {"content": ""}}]},
+            },
+            {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {"rich_text": [{"type": "text", "text": {"content": ""}}]},
+            },
+            # {"object":"block","type":"paragraph","paragraph":{"rich_text":[{"type":"text","text":{"content":""}}]}},
             {
                 "object": "block",
                 "type": "paragraph",
@@ -421,14 +482,17 @@ def append_update_timestamp(page_id: str):
                     "rich_text": [
                         {"type": "text", "text": {"content": f"最終更新: {ts_str}"}}
                     ]
-                }
-            }
+                },
+            },
         ]
     }
     res = requests.patch(url, headers=HEADERS, json=data)
     if res.status_code != 200:
-        raise RuntimeError(f"Failed to append update timestamp to Notion: {res.status_code} {res.text}")
+        raise RuntimeError(
+            f"Failed to append update timestamp to Notion: {res.status_code} {res.text}"
+        )
     logger.info(f"Notionページに最終更新日時を追加しました: {ts_str}")
+
 
 # --- Helper: append_image_grid_to_notion ---
 def append_image_grid_to_notion(page_id: str, blocks: list[tuple[str, str]]):
@@ -451,27 +515,23 @@ def append_image_grid_to_notion(page_id: str, blocks: list[tuple[str, str]]):
                         "image": {
                             "type": "external",
                             "external": {"url": url},
-                        }
+                        },
                     }
-                    #if caption:
+                    # if caption:
                     #    img_block["image"]["caption"] = [{"type": "text", "text": {"content": caption}}]
                     col_imgs.append(img_block)
-            columns.append({
-                "object": "block",
-                "type": "column",
-                "column": {
-                    "children": col_imgs
-                }
-            })
+            columns.append(
+                {"object": "block", "type": "column", "column": {"children": col_imgs}}
+            )
         column_list_block = {
             "object": "block",
             "type": "column_list",
-            "column_list": {
-                "children": columns
-            }
+            "column_list": {"children": columns},
         }
         url_api = f"https://api.notion.com/v1/blocks/{page_id}/children"
-        requests.patch(url_api, headers=HEADERS, json={"children": [column_list_block]}).raise_for_status()
+        requests.patch(
+            url_api, headers=HEADERS, json={"children": [column_list_block]}
+        ).raise_for_status()
         logger.info("Notionページに 3x3 画像グリッドを追加しました。")
     except Exception as e:
         logger.error(f"Failed to append image grid to Notion: {e}")
@@ -480,7 +540,9 @@ def append_image_grid_to_notion(page_id: str, blocks: list[tuple[str, str]]):
 
 def main():
     if NOTION_TOKEN is None or NOTION_PAGE_ID is None:
-        logger.info("環境変数 NOTION_TOKEN と NOTION_VIOLATION_PAGE_ID を設定してください。")
+        logger.info(
+            "環境変数 NOTION_TOKEN と NOTION_VIOLATION_PAGE_ID を設定してください。"
+        )
         return
 
     periods = ["weekly", "monthly", "all"]
@@ -489,9 +551,9 @@ def main():
         # 期間のしきい値を計算
         since_ts = None
         if period == "weekly":
-            since_ts = (__import__('time').time() - 7*24*3600)
+            since_ts = __import__("time").time() - 7 * 24 * 3600
         elif period == "monthly":
-            since_ts = (__import__('time').time() - 30*24*3600)
+            since_ts = __import__("time").time() - 30 * 24 * 3600
 
         # 1. ルール別集計
         counts = fetch_violation_counts(DB_PATH, since_ts)
@@ -510,9 +572,9 @@ def main():
         # 画像ファイル名（タイムスタンプ付き）
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         base_name = f"violation_trends_{period}_{timestamp}"
-        hist_path     = f"{base_name}_hist.png"
-        ts_path       = f"{base_name}_timeseries.png"
-        heatmap_path  = f"{base_name}_heatmap.png"
+        hist_path = f"{base_name}_hist.png"
+        ts_path = f"{base_name}_timeseries.png"
+        heatmap_path = f"{base_name}_heatmap.png"
 
         # プロット作成
         label = PERIOD_LABELS.get(period, period)
@@ -521,60 +583,69 @@ def main():
         plot_heatmap(heatmap, label, heatmap_path)
 
         # 古いファイルをリモートサーバーから削除（同じ期間のもの）
-        #try:
+        # try:
         #    cleanup_cmd = f"rm {REMOTE_PATH}/violation_trends_{period}_*"
         #    subprocess.run(["ssh", f"{REMOTE_USER}@{REMOTE_HOST}", cleanup_cmd], check=True)
         #    logger.info(f"Removed old remote files for period '{period}'")
-        #except Exception as e:
+        # except Exception as e:
         #    logger.warning(f"Failed to clean up o  ld remote files: {e}")
 
         # Cleanup old S3 objects for this period (run immediately before upload)
         cleanup_prefix = f"{S3_KEY_PREFIX}/violation_trends_{period}_"
         # Determine current keys to keep
-        current_keys = {cleanup_prefix + os.path.basename(path) for path in (hist_path, ts_path, heatmap_path)}
+        current_keys = {
+            cleanup_prefix + os.path.basename(path)
+            for path in (hist_path, ts_path, heatmap_path)
+        }
         resp = s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix=cleanup_prefix)
-        #logger.info(f"[{period}] list_objects_v2 Prefix={cleanup_prefix} -> Contents={resp.get('Contents')}")  # Debug
-        if resp.get('Contents'):
+        # logger.info(f"[{period}] list_objects_v2 Prefix={cleanup_prefix} -> Contents={resp.get('Contents')}")  # Debug
+        if resp.get("Contents"):
             # Delete objects not in current_keys
             delete_keys = [
-                {'Key': obj['Key']}
-                for obj in resp['Contents']
-                if obj['Key'] not in current_keys
+                {"Key": obj["Key"]}
+                for obj in resp["Contents"]
+                if obj["Key"] not in current_keys
             ]
             if delete_keys:
-                s3_client.delete_objects(Bucket=S3_BUCKET, Delete={'Objects': delete_keys})
-                logger.info(f"[{period}] Removed old S3 objects: {[o['Key'] for o in delete_keys]}")
+                s3_client.delete_objects(
+                    Bucket=S3_BUCKET, Delete={"Objects": delete_keys}
+                )
+                logger.info(
+                    f"[{period}] Removed old S3 objects: {[o['Key'] for o in delete_keys]}"
+                )
 
         # Upload images to S3 under S3_KEY_PREFIX/
         for path in (hist_path, ts_path, heatmap_path):
             key = f"{S3_KEY_PREFIX}/{os.path.basename(path)}"
             try:
-            #    upload_to_server(path)
-            #except Exception as e:
-            #    logger.info(f"Failed to upload {path} via SCP: {e}")
+                #    upload_to_server(path)
+                # except Exception as e:
+                #    logger.info(f"Failed to upload {path} via SCP: {e}")
                 s3_client.upload_file(path, S3_BUCKET, key)
                 logger.info(f"Uploaded '{path}' to s3://{S3_BUCKET}/{key}")
             except ClientError as e:
-                logger.error(f"Failed to upload {path} to S3: {e}")     
-                
-        #hist_url = f"{HOST_URL}/{hist_path}"
-        #ts_url   = f"{HOST_URL}/{ts_path}"
-        #heat_url = f"{HOST_URL}/{heatmap_path}"
-        #logger.info("Using external host URLs:")
+                logger.error(f"Failed to upload {path} to S3: {e}")
+
+        # hist_url = f"{HOST_URL}/{hist_path}"
+        # ts_url   = f"{HOST_URL}/{ts_path}"
+        # heat_url = f"{HOST_URL}/{heatmap_path}"
+        # logger.info("Using external host URLs:")
         hist_url = f"{CLOUDFRONT_URL}/{S3_KEY_PREFIX}/{hist_path}"
-        ts_url   = f"{CLOUDFRONT_URL}/{S3_KEY_PREFIX}/{ts_path}"
+        ts_url = f"{CLOUDFRONT_URL}/{S3_KEY_PREFIX}/{ts_path}"
         heat_url = f"{CLOUDFRONT_URL}/{S3_KEY_PREFIX}/{heatmap_path}"
-        logger.info("Using CloudFront URLs:")        
+        logger.info("Using CloudFront URLs:")
         logger.info(f"  histogram: {hist_url}")
         logger.info(f"  timeseries: {ts_url}")
         logger.info(f"  heatmap: {heat_url}")
 
         # Collect for grid
-        all_blocks.extend([
-            (hist_url, f"ルール別発生件数 ({label})"),
-            (ts_url,   f"時系列トレンド ({label})"),
-            (heat_url, f"曜日・時間帯ヒートマップ ({label})"),
-        ])
+        all_blocks.extend(
+            [
+                (hist_url, f"ルール別発生件数 ({label})"),
+                (ts_url, f"時系列トレンド ({label})"),
+                (heat_url, f"曜日・時間帯ヒートマップ ({label})"),
+            ]
+        )
 
     # After all periods: update Notion
     clear_page_children(NOTION_PAGE_ID)

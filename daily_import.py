@@ -2,10 +2,11 @@ import os
 import time
 import sqlite3
 import logging
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
 
@@ -13,14 +14,20 @@ from datetime import datetime, timezone
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from pipelines import process_faq, process_trend_topics, process_info_requests
-from publishers import post_faq_to_slack, post_trends_to_slack, post_info_requests_to_slack, notion_upsert_all
+from publishers import (
+    post_faq_to_slack,
+    post_trends_to_slack,
+    post_info_requests_to_slack,
+    notion_upsert_all,
+)
 
 from dotenv import load_dotenv
+
 load_dotenv()
-SLACK_TOKEN   = os.environ["SLACK_BOT_TOKEN"]
-QUESTION_CH   = os.environ["QUESTION_CHANNEL"]   # bot-qa-dev
-DEV_CH        = os.environ["BOT_DEV_CHANNEL"]    # bot-dev
-DB_PATH       = os.getenv("SCORES_DB_PATH", "scores.db")
+SLACK_TOKEN = os.environ["SLACK_BOT_TOKEN"]
+QUESTION_CH = os.environ["QUESTION_CHANNEL"]  # bot-qa-dev
+DEV_CH = os.environ["BOT_DEV_CHANNEL"]  # bot-dev
+DB_PATH = os.getenv("SCORES_DB_PATH", "scores.db")
 
 MAX_RETRIES = 3
 RATE_LIMIT_SLEEP = 1.2  # per‐call spacing
@@ -31,9 +38,11 @@ slack = WebClient(token=SLACK_TOKEN)
 def get_max_post_ts(db):
     """slack_posts テーブルの最大 ts を返す（なければ None）"""
     cur = db.cursor()
-    cur.execute("""
+    cur.execute(
+        """
       SELECT MAX(ts) FROM slack_posts
-    """)
+    """
+    )
     row = cur.fetchone()
     return row[0] if row and row[0] is not None else None
 
@@ -41,12 +50,14 @@ def get_max_post_ts(db):
 def get_last_import_ts(db):
     """前回の取得時刻を返す（なければ None）"""
     cur = db.cursor()
-    cur.execute("""
+    cur.execute(
+        """
       CREATE TABLE IF NOT EXISTS import_state (
         key TEXT PRIMARY KEY,
         last_ts REAL
       )
-    """)
+    """
+    )
     cur.execute("SELECT last_ts FROM import_state WHERE key = 'daily_import'")
     row = cur.fetchone()
     return row[0] if row else None
@@ -55,10 +66,13 @@ def get_last_import_ts(db):
 def update_last_import_ts(db, ts):
     """import_state を UPSERT して当日時刻を保存"""
     cur = db.cursor()
-    cur.execute("""
+    cur.execute(
+        """
       INSERT INTO import_state(key, last_ts) VALUES('daily_import', ?)
       ON CONFLICT(key) DO UPDATE SET last_ts=excluded.last_ts
-    """, (ts,))
+    """,
+        (ts,),
+    )
     db.commit()
 
 
@@ -71,16 +85,15 @@ def fetch_threads(channel: str, oldest_ts: float):
         while True:
             try:
                 resp = slack.conversations_history(
-                    channel=channel,
-                    oldest=oldest_ts,
-                    limit=50,
-                    cursor=cursor
+                    channel=channel, oldest=oldest_ts, limit=50, cursor=cursor
                 )
                 break
             except SlackApiError as e:
                 if e.response.get("error") == "ratelimited" and retry < MAX_RETRIES:
                     retry_after = int(e.response.headers.get("Retry-After", 60))
-                    logging.info(f"Rate limited on history {channel}, retry after {retry_after}s")
+                    logging.info(
+                        f"Rate limited on history {channel}, retry after {retry_after}s"
+                    )
                     time.sleep(retry_after)
                     retry += 1
                     continue
@@ -96,8 +109,7 @@ def fetch_threads(channel: str, oldest_ts: float):
     return [
         (m["ts"], channel, m.get("user", ""), m.get("text", "").strip(), m["ts"])
         for m in all_msgs
-        if m.get("thread_ts", m["ts"]) == m["ts"]
-           and m.get("subtype") != "bot_message"
+        if m.get("thread_ts", m["ts"]) == m["ts"] and m.get("subtype") != "bot_message"
     ]
 
 
@@ -106,16 +118,14 @@ def fetch_replies(channel: str, thread_ts: str):
     retry = 0
     while True:
         try:
-            resp = slack.conversations_replies(
-                channel=channel,
-                ts=thread_ts,
-                limit=100
-            )
+            resp = slack.conversations_replies(channel=channel, ts=thread_ts, limit=100)
             break
         except SlackApiError as e:
             if e.response.get("error") == "ratelimited" and retry < MAX_RETRIES:
                 retry_after = int(e.response.headers.get("Retry-After", 60))
-                logging.info(f"Rate limited on replies {thread_ts}, retry after {retry_after}s")
+                logging.info(
+                    f"Rate limited on replies {thread_ts}, retry after {retry_after}s"
+                )
                 time.sleep(retry_after)
                 retry += 1
                 continue
@@ -137,7 +147,7 @@ def import_posts(db, entries):
     cur = db.cursor()
     cur.executemany(
         "INSERT OR IGNORE INTO slack_posts(ts, channel, user, text, thread_ts) VALUES (?, ?, ?, ?, ?)",
-        entries
+        entries,
     )
     db.commit()
 
@@ -158,7 +168,9 @@ def fetch_and_import(db, channel, oldest_ts):
 def fetch_threads_only(db, channel, oldest_ts):
     """親スレッドのみ取得してインサート（replies は取得しない）"""
     threads = fetch_threads(channel, oldest_ts)
-    logging.info(f"{channel}: fetched {len(threads)} threads since {oldest_ts} (threads only)")
+    logging.info(
+        f"{channel}: fetched {len(threads)} threads since {oldest_ts} (threads only)"
+    )
     import_posts(db, threads)
 
 
@@ -189,7 +201,7 @@ def main():
             processing_occurred = True
         if process_info_requests(db):
             processing_occurred = True
-        
+
         # Slack投稿は常に実行（既存データがあれば）
         post_faq_to_slack(db)
         post_trends_to_slack(db)

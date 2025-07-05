@@ -2,6 +2,7 @@ import sqlite3
 from typing import Dict, List, Tuple
 from .constants import WEIGHTS
 
+
 def compute_score(counts: Dict[str, float]) -> float:
     """
     与えられた各種カウントからスコアを計算する。
@@ -15,18 +16,16 @@ def compute_score(counts: Dict[str, float]) -> float:
     }
     """
     return (
-        counts.get('posts', 0) * WEIGHTS['post']
-      + counts.get('reactions', 0) * WEIGHTS['reaction']
-      + counts.get('answers', 0) * WEIGHTS['answer']
-      + counts.get('positive_fb', 0) * WEIGHTS['positive_feedback']
-      + counts.get('violations', 0) * WEIGHTS['violation']
+        counts.get("posts", 0) * WEIGHTS["post"]
+        + counts.get("reactions", 0) * WEIGHTS["reaction"]
+        + counts.get("answers", 0) * WEIGHTS["answer"]
+        + counts.get("positive_fb", 0) * WEIGHTS["positive_feedback"]
+        + counts.get("violations", 0) * WEIGHTS["violation"]
     )
 
+
 def fetch_user_counts(
-    db_path: str,
-    since: float,
-    until: float,
-    limit: int = 5
+    db_path: str, since: float, until: float, limit: int = 5
 ) -> List[Tuple[str, int, int, int, int, int, float]]:
     """
     SQLite の events テーブルから、指定期間のユーザーごとの各種カウントとスコアを取得する。
@@ -35,8 +34,9 @@ def fetch_user_counts(
       (user_id, posts, reactions, answers, positive_fb, violations, score)
     """
     conn = sqlite3.connect(db_path)
-    cur  = conn.cursor()
-    cur.execute("""
+    cur = conn.cursor()
+    cur.execute(
+        """
         SELECT
           user_id,
           SUM(CASE WHEN type='post'              THEN 1 ELSE 0 END)           AS posts,
@@ -56,16 +56,18 @@ def fetch_user_counts(
         GROUP BY user_id
         ORDER BY score DESC
         LIMIT ?
-    """, (
-        WEIGHTS['post'],
-        WEIGHTS['reaction'],
-        WEIGHTS['answer'],
-        WEIGHTS['positive_feedback'],
-        WEIGHTS['violation'],
-        since,
-        until,
-        limit,
-    ))
+    """,
+        (
+            WEIGHTS["post"],
+            WEIGHTS["reaction"],
+            WEIGHTS["answer"],
+            WEIGHTS["positive_feedback"],
+            WEIGHTS["violation"],
+            since,
+            until,
+            limit,
+        ),
+    )
     rows = cur.fetchall()
     conn.close()
     # each row is (user_id, posts, reactions, answers, positive_fb, violations, score)

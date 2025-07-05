@@ -5,14 +5,16 @@ from datetime import timedelta
 import json
 import sqlite3
 import logging
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
+
 load_dotenv()
 DB_PATH = os.environ.get("SCORES_DB_PATH", "scores.db")
 
@@ -23,7 +25,7 @@ def update_score(
     reaction=False,
     answer=False,
     positive_feedback=False,
-    violation=False
+    violation=False,
 ):
     """
     スコア(user_scores)を更新するユーティリティ関数。
@@ -32,17 +34,33 @@ def update_score(
     cur = conn.cursor()
     cur.execute("INSERT OR IGNORE INTO user_scores(user_id) VALUES(?)", (user_id,))
     if post:
-        cur.execute("UPDATE user_scores SET post_count = post_count + 1 WHERE user_id = ?", (user_id,))
+        cur.execute(
+            "UPDATE user_scores SET post_count = post_count + 1 WHERE user_id = ?",
+            (user_id,),
+        )
     if reaction:
-        cur.execute("UPDATE user_scores SET reaction_count = reaction_count + 1 WHERE user_id = ?", (user_id,))
+        cur.execute(
+            "UPDATE user_scores SET reaction_count = reaction_count + 1 WHERE user_id = ?",
+            (user_id,),
+        )
     if answer:
-        cur.execute("UPDATE user_scores SET answer_count = answer_count + 1 WHERE user_id = ?", (user_id,))
+        cur.execute(
+            "UPDATE user_scores SET answer_count = answer_count + 1 WHERE user_id = ?",
+            (user_id,),
+        )
     if positive_feedback:
-        cur.execute("UPDATE user_scores SET positive_feedback_count = positive_feedback_count + 1 WHERE user_id = ?", (user_id,))
+        cur.execute(
+            "UPDATE user_scores SET positive_feedback_count = positive_feedback_count + 1 WHERE user_id = ?",
+            (user_id,),
+        )
     if violation:
-        cur.execute("UPDATE user_scores SET violation_count = violation_count + 1 WHERE user_id = ?", (user_id,))
+        cur.execute(
+            "UPDATE user_scores SET violation_count = violation_count + 1 WHERE user_id = ?",
+            (user_id,),
+        )
     conn.commit()
     conn.close()
+
 
 '''def record_reaction_event(user_id, reactor_id, reaction_name, ts_epoch):
     """
@@ -64,7 +82,7 @@ def record_event(
     ts_epoch: float = None,
     reactor_id: str = None,
     reaction_name: str = None,
-    violation_rule: str = None
+    violation_rule: str = None,
 ):
     """
     任意イベントをeventsテーブルに記録する汎用関数。
@@ -83,7 +101,7 @@ def record_event(
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO events (user_id, reactor_id, type, reaction_name, ts_epoch, violation_rule) VALUES (?, ?, ?, ?, ?, ?)",
-        (user_id, reactor_id, event_type, reaction_name, ts_epoch, violation_rule)
+        (user_id, reactor_id, event_type, reaction_name, ts_epoch, violation_rule),
     )
     event_id = cur.lastrowid
     conn.commit()
@@ -102,7 +120,8 @@ def is_positive_reaction(reaction_name: str):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute(
-        "SELECT is_positive FROM reaction_judgement WHERE reaction_name = ?", (reaction_name,)
+        "SELECT is_positive FROM reaction_judgement WHERE reaction_name = ?",
+        (reaction_name,),
     )
     row = cur.fetchone()
     conn.close()
@@ -119,7 +138,7 @@ def cache_positive_reaction(reaction_name: str, is_positive: bool):
     cur = conn.cursor()
     cur.execute(
         "INSERT OR REPLACE INTO reaction_judgement (reaction_name, is_positive, last_checked_ts) VALUES (?, ?, ?)",
-        (reaction_name, int(is_positive), time.time())
+        (reaction_name, int(is_positive), time.time()),
     )
     conn.commit()
     conn.close()
@@ -131,12 +150,14 @@ def get_unjudged_reactions():
     """
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("""
+    cur.execute(
+        """
         SELECT DISTINCT reaction_name FROM events
         WHERE type='reaction'
           AND reaction_name IS NOT NULL
           AND reaction_name NOT IN (SELECT reaction_name FROM reaction_judgement)
-    """)
+    """
+    )
     rows = cur.fetchall()
     conn.close()
     return [row[0] for row in rows if row[0]]
@@ -148,14 +169,16 @@ def get_unscored_positive_reactions():
     """
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("""
+    cur.execute(
+        """
         SELECT events.id, events.user_id, events.reactor_id, events.reaction_name, events.ts_epoch
         FROM events
         JOIN reaction_judgement ON events.reaction_name = reaction_judgement.reaction_name
         WHERE events.type = 'reaction'
           AND events.scored = 0
           AND reaction_judgement.is_positive = 1
-    """)
+    """
+    )
     rows = cur.fetchall()
     conn.close()
     # カラム順に注意
@@ -177,10 +200,7 @@ def mark_reaction_scored(event_id: int):
     """
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute(
-        "UPDATE events SET scored=1 WHERE id=?",
-        (event_id,)
-    )
+    cur.execute("UPDATE events SET scored=1 WHERE id=?", (event_id,))
     conn.commit()
     conn.close()
 
@@ -194,7 +214,10 @@ def apply_reaction_scores(events):
     cur = conn.cursor()
     for event in events:
         # 加点処理
-        cur.execute("UPDATE user_scores SET reaction_count = reaction_count + 1 WHERE user_id = ?", (event["user_id"],))
+        cur.execute(
+            "UPDATE user_scores SET reaction_count = reaction_count + 1 WHERE user_id = ?",
+            (event["user_id"],),
+        )
         # scoredフラグを立てる
         cur.execute("UPDATE events SET scored=1 WHERE id=?", (event["id"],))
     conn.commit()
@@ -210,14 +233,11 @@ def fetch_posts_for_faq(conn, channel, window_days=7):
     cur = conn.cursor()
     cur.execute(
         "SELECT id, ts, text, thread_ts FROM slack_posts WHERE channel=? AND ts>=? AND thread_ts=ts",
-        (channel, window_start)
+        (channel, window_start),
     )
-    #return cur.fetchall()
+    # return cur.fetchall()
     rows = cur.fetchall()
-    return [
-        {"id": r[0], "ts": r[1], "text": r[2], "thread_ts": r[3]}
-        for r in rows
-    ]
+    return [{"id": r[0], "ts": r[1], "text": r[2], "thread_ts": r[3]} for r in rows]
 
 
 def fetch_posts_for_topics(conn, channels, window_days=7):
@@ -228,17 +248,16 @@ def fetch_posts_for_topics(conn, channels, window_days=7):
     now = datetime.datetime.utcnow().timestamp()
     window_start = now - window_days * 86400
     cur = conn.cursor()
-    placeholders = ','.join('?' for _ in channels)
+    placeholders = ",".join("?" for _ in channels)
     query = f"SELECT id, ts, text FROM slack_posts WHERE channel IN ({placeholders}) AND ts>=? AND thread_ts=ts"
     cur.execute(query, (*channels, window_start))
     rows = cur.fetchall()
-    return [
-        {"id": r[0], "ts": r[1], "text": r[2]}
-        for r in rows
-    ]
+    return [{"id": r[0], "ts": r[1], "text": r[2]} for r in rows]
 
 
-def insert_extracted_item(post_ids, title, created_at=None, answer=None, source_url=None):
+def insert_extracted_item(
+    post_ids, title, created_at=None, answer=None, source_url=None
+):
     """
     extracted_itemsテーブルに新規アイテムを挿入する。
     post_idsはリスト、titleは文字列
@@ -251,7 +270,7 @@ def insert_extracted_item(post_ids, title, created_at=None, answer=None, source_
         item_json = {"post_ids": post_ids, "title": title}
         cur.execute(
             "INSERT INTO extracted_items (post_ids, title, created_at, answer, source_url) VALUES (?, ?, ?, ?, ?)",
-            (json.dumps(post_ids), title, created_at, answer, source_url)
+            (json.dumps(post_ids), title, created_at, answer, source_url),
         )
         item_id = cur.lastrowid
         conn.commit()
@@ -273,10 +292,12 @@ def insert_extracted_item_type(item_id, type_name):
     try:
         cur.execute(
             "INSERT INTO extracted_item_types (item_id, type) VALUES (?, ?)",
-            (item_id, type_name)
+            (item_id, type_name),
         )
         conn.commit()
-        logger.info(f"Inserted extracted_item_type with item_id={item_id}, type_name={type_name}")
+        logger.info(
+            f"Inserted extracted_item_type with item_id={item_id}, type_name={type_name}"
+        )
     except Exception as e:
         logger.error(f"Failed to insert extracted_item_type: {e}")
         raise
@@ -293,13 +314,15 @@ def insert_trend_topic(conn, label, topic_text, size, created_at=None):
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO trend_topics (label, topic_text, size, created_at) VALUES (?, ?, ?, ?)",
-        (label, topic_text, size, created_at)
+        (label, topic_text, size, created_at),
     )
     conn.commit()
     return cur.lastrowid
 
 
-def insert_info_request(conn, label: int, requests: str, size: int, created_at=None) -> int:
+def insert_info_request(
+    conn, label: int, requests: str, size: int, created_at=None
+) -> int:
     """
     info_requests テーブルに新規情報リクエストを挿入する。
     """
@@ -308,7 +331,7 @@ def insert_info_request(conn, label: int, requests: str, size: int, created_at=N
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO info_requests (label, request_text, size, created_at) VALUES (?, ?, ?, ?)",
-        (label, requests, size, created_at)
+        (label, requests, size, created_at),
     )
     conn.commit()
     return cur.lastrowid
@@ -340,7 +363,7 @@ def fetch_thread_replies(conn, post_id):
     # Now fetch all posts in this thread (excluding the main post)
     cur.execute(
         "SELECT text FROM slack_posts WHERE thread_ts = ? AND id != ? ORDER BY ts ASC",
-        (thread_ts, post_id)
+        (thread_ts, post_id),
     )
     replies = [r[0] for r in cur.fetchall()]
     return replies
@@ -362,27 +385,27 @@ def fetch_post_text(conn, post_id):
 def count_posts_since(conn, ts: float, channels=None, include_replies=False) -> int:
     """
     指定した時刻以降の投稿数をカウントする。
-    
+
     :param conn: データベース接続
     :param ts: 基準タイムスタンプ
     :param channels: 対象チャネルのリスト（Noneなら全チャネル）
     :param include_replies: Trueなら返信も含む、Falseなら親スレッドのみ
     """
     cur = conn.cursor()
-    
+
     # ベースクエリ
     query = "SELECT COUNT(*) FROM slack_posts WHERE ts > ?"
     params = [ts]
-    
+
     # チャネル指定
     if channels:
-        placeholders = ','.join('?' for _ in channels)
+        placeholders = ",".join("?" for _ in channels)
         query += f" AND channel IN ({placeholders})"
         params.extend(channels)
-    
+
     # 返信を含むかどうか
     if not include_replies:
         query += " AND thread_ts = ts"
-    
+
     cur.execute(query, params)
     return cur.fetchone()[0]

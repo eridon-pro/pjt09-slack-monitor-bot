@@ -3,30 +3,48 @@ import re
 import openai
 import json
 import logging
+
 logger = logging.getLogger(__name__)
 
 # Default Model overwritten by .env file
-#MODEL = "gpt-3.5-turbo"
+# MODEL = "gpt-3.5-turbo"
 MODEL = os.environ.get("OPENAI_MODEL", "gpt-3.5-turbo")
 
 # ポジティブフィードバック検出用キーワード
-POSITIVE_KEYWORDS = ["ありがとう", "感謝", "助かった", "すごい", "素晴らしい", "ナイス", "thanks", "thank you", "thx",]
+POSITIVE_KEYWORDS = [
+    "ありがとう",
+    "感謝",
+    "助かった",
+    "すごい",
+    "素晴らしい",
+    "ナイス",
+    "thanks",
+    "thank you",
+    "thx",
+]
 
 # ポジティブリアクション（絵文字キー）
 POSITIVE_REACTIONS = {
-    '+1', 'thumbsup',    # 👍
-    'heart',             # ❤️
-    'tada',              # 🎉
-    'clap',              # 👏
-    'raised_hands',      # 🙌
-    'bow',               # 🙇
-    'bowing_woman',      # 🙇‍♀️
-    'bowing_man',        # 🙇‍♂️
-    'pray',              # 🙏 
+    "+1",
+    "thumbsup",  # 👍
+    "heart",  # ❤️
+    "tada",  # 🎉
+    "clap",  # 👏
+    "raised_hands",  # 🙌
+    "bow",  # 🙇
+    "bowing_woman",  # 🙇‍♀️
+    "bowing_man",  # 🙇‍♂️
+    "pray",  # 🙏
 }
 
 # ネガティブ判定排除キーワード
-NEGATIVE_ANSWER_KEYWORDS = ["わからない", "知らない", "できません", "どうでしょう", "先生？"]
+NEGATIVE_ANSWER_KEYWORDS = [
+    "わからない",
+    "知らない",
+    "できません",
+    "どうでしょう",
+    "先生？",
+]
 
 # 読み込み：コミュニティガイドライン
 BASE_DIR = os.path.dirname(__file__)
@@ -35,16 +53,18 @@ with open(os.path.join(BASE_DIR, "guidelines.txt"), encoding="utf-8") as f:
 
 # 項目番号をパースして最大値を取得
 # 1. 各行の先頭にある「数字.」を全部抜き出して数値化
-numbers = [int(m.group(1))
-           for m in re.finditer(r'^\s*(\d+)\.', GUIDELINES, re.MULTILINE)]
+numbers = [
+    int(m.group(1)) for m in re.finditer(r"^\s*(\d+)\.", GUIDELINES, re.MULTILINE)
+]
 # 2. 最大の番号が項目数
 NUM_GUIDELINES = max(numbers) if numbers else 0
 
 # 番号付き規約テキストをマップ化
 RULES_MAP = {
     int(m.group(1)): m.group(2).strip()
-    for m in re.finditer(r'^\s*(\d+)\.\s*(.+)$', GUIDELINES, re.MULTILINE)
+    for m in re.finditer(r"^\s*(\d+)\.\s*(.+)$", GUIDELINES, re.MULTILINE)
 }
+
 
 def classify_text(text: str) -> dict:
     """
@@ -65,7 +85,7 @@ def classify_text(text: str) -> dict:
                     "あなたは研究室のSlackコミュニティ運営ボットです。以下はコミュニティ規約(番号付き)です。全文をよく読み、"
                     "投稿が規約違反かどうか、かつ、違反なら何番に違反しているかを番号で答えてください。\n\n"
                     f"{GUIDELINES}"
-                )
+                ),
             },
             {
                 "role": "user",
@@ -73,16 +93,19 @@ def classify_text(text: str) -> dict:
                     f"次の投稿について:\n```{text}```\n"
                     "1) 違反していますか？Yes/No\n"
                     "2) 違反なら、違反した規約番号をカンマ区切りで教えてください。違反がない場合は、番号は一切返さないでください。"
-                    #f"次のSlack投稿がコミュニティ規約に違反しているか？ Yes か No で答えてください。\n```{text}```"
-                )
-            }
+                    # f"次のSlack投稿がコミュニティ規約に違反しているか？ Yes か No で答えてください。\n```{text}```"
+                ),
+            },
         ]
-        create_args = {"model": MODEL, "messages": messages,}
+        create_args = {
+            "model": MODEL,
+            "messages": messages,
+        }
         logger.info(f"[LLM: {MODEL}] classify_text req: '{text[:80]}'")
         # gpt-3.5-turbo 系で temperature=0 を使いたい場合
         if not MODEL.startswith("o4-"):
             create_args["temperature"] = 0
-        
+
         resp = openai.chat.completions.create(**create_args)
         out = resp.choices[0].message.content.strip()
         logger.info(f"[LLM: {MODEL}] classify_text resp: '{out[:80]}'")
@@ -95,16 +118,14 @@ def classify_text(text: str) -> dict:
         if violation:
             # 全文から番号を抽出 → セット化して重複を除き、ソート
             extracted = map(int, re.findall(r"\b[1-9]\d*\b", out))
-            valid_rules = sorted({
-                n for n in extracted
-                if 1 <= n <= NUM_GUIDELINES
-            })
+            valid_rules = sorted({n for n in extracted if 1 <= n <= NUM_GUIDELINES})
         else:
             valid_rules = []
         return {"violation": violation, "rules": valid_rules}
-    
+
     # API キーがない場合のフォールバック
     return {"violation": False}
+
 
 '''
 def detect_positive_feedback(text: str) -> list:
@@ -117,6 +138,7 @@ def detect_positive_feedback(text: str) -> list:
     ids = re.findall(r"<@([A-Z0-9]+)>", text)
     return ids
 '''
+
 
 def detect_positive_feedback(text: str) -> list[str]:
     """
@@ -159,11 +181,12 @@ def detect_positive_feedback(text: str) -> list[str]:
         if isinstance(ids, list):
             return ids
     except Exception as e:
-        #print(f"LLM failed: {e}")  # 必要に応じてログ
+        # print(f"LLM failed: {e}")  # 必要に応じてログ
         pass
 
-    # 失敗したら従来ロジック   
+    # 失敗したら従来ロジック
     return re.findall(r"<@([A-Z0-9]+)>", text)
+
 
 '''
 def is_likely_answer(text: str) -> bool:
@@ -180,6 +203,7 @@ def is_likely_answer(text: str) -> bool:
     return len(text) >= 20
 '''
 
+
 def is_likely_answer(question: str, answer: str) -> bool:
     """
     質問への回答とみなせるかのルール判定
@@ -188,18 +212,24 @@ def is_likely_answer(question: str, answer: str) -> bool:
     """
     if openai.api_key:
         messages = [
-            {"role": "system", "content": "あなたはSlackのQAコミュニティ運営ボットです。"},
-            {"role": "user", "content":
-                f"以下は質問です：\n```{question}```\n"
+            {
+                "role": "system",
+                "content": "あなたはSlackのQAコミュニティ運営ボットです。",
+            },
+            {
+                "role": "user",
+                "content": f"以下は質問です：\n```{question}```\n"
                 f"以下はその返信です：\n```{answer}```\n"
-                "この返信は質問に対する適切な回答か？Yes/No で答えてください。"
+                "この返信は質問に対する適切な回答か？Yes/No で答えてください。",
             },
         ]
         create_args = {"model": MODEL, "messages": messages}
         if not MODEL.startswith("o4-"):
             create_args["temperature"] = 0
-        
-        logger.info(f"[LLM: {MODEL}] is_likely_answer req: question='{question[:80]}', answer='{answer[:80]}'")
+
+        logger.info(
+            f"[LLM: {MODEL}] is_likely_answer req: question='{question[:80]}', answer='{answer[:80]}'"
+        )
         resp = openai.chat.completions.create(**create_args)
         ans = resp.choices[0].message.content.strip().lower()
         logger.info(f"[LLM: {MODEL}] is_likely_answer resp: '{ans[:80]}'")

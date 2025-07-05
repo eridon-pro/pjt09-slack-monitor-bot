@@ -1,10 +1,11 @@
 import os
 import logging
 from typing import Optional
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
 
@@ -18,11 +19,13 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 # Load environment variables
 load_dotenv()
-MODEL          = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
-EMBED_MODEL    = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
-KNOWLEDGE_URL1 = os.getenv("KNOWLEDGE_URL1") # Knowledge site URL
-KNOWLEDGE_URL2 = os.getenv("KNOWLEDGE_URL2")# Local FAQ JSONL file path (set via env or default)
-FAQ_PATH       = os.getenv("FAQ_PATH", "utils/faq_20250628.jsonl")
+MODEL = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+EMBED_MODEL = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+KNOWLEDGE_URL1 = os.getenv("KNOWLEDGE_URL1")  # Knowledge site URL
+KNOWLEDGE_URL2 = os.getenv(
+    "KNOWLEDGE_URL2"
+)  # Local FAQ JSONL file path (set via env or default)
+FAQ_PATH = os.getenv("FAQ_PATH", "utils/faq_20250628.jsonl")
 
 # Cache for FAQ data and embeddings
 _FAQ_DATA: list[dict] = []
@@ -61,10 +64,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     Given a list of strings, returns their embeddings as a list of vectors.
     """
     logger.info(f"[LLM: {MODEL}] embed_texts for {len(texts)} texts")
-    resp = openai.embeddings.create(
-        model=EMBED_MODEL,
-        input=texts
-    )
+    resp = openai.embeddings.create(model=EMBED_MODEL, input=texts)
     # New API returns a CreateEmbeddingResponse with .data list
     embeddings = [d.embedding for d in resp.data]
     return embeddings
@@ -80,23 +80,28 @@ def llm_summarize_cluster(texts: list[str]) -> str:
     )
     logger.info(f"[LLM: {MODEL}] llm_summarize_cluster prompt: {prompt}")  # Debug
     messages = [
-        {"role": "system", "content": "あなたはコミュニティ参加者からの質問・回答をとりまとめるアシスタントです。"},
-        {"role": "user", "content": prompt}
+        {
+            "role": "system",
+            "content": "あなたはコミュニティ参加者からの質問・回答をとりまとめるアシスタントです。",
+        },
+        {"role": "user", "content": prompt},
     ]
     create_args = {"model": MODEL, "messages": messages}
     # Always use max_tokens, choosing value by model type
-    #if MODEL.startswith("o4-"):
+    # if MODEL.startswith("o4-"):
     #    create_args["max_completion_tokens"] = DEFAULT_MAX_COMPLETION_TOKENS
-    #else:
+    # else:
     #    create_args["max_tokens"] = DEFAULT_MAX_TOKENS
 
     try:
         logger.info(f"[LLM: {MODEL}] llm_summarize_cluster req: {len(texts)} texts")
         resp = openai.chat.completions.create(**create_args)
         # Log token usage if available
-        usage = getattr(resp, 'usage', None)
+        usage = getattr(resp, "usage", None)
         if usage:
-            logger.info(f"[LLM: {MODEL}] llm_summarize_cluster usage prompt_tokens={usage.prompt_tokens} completion_tokens={usage.completion_tokens} total_tokens={usage.total_tokens}")
+            logger.info(
+                f"[LLM: {MODEL}] llm_summarize_cluster usage prompt_tokens={usage.prompt_tokens} completion_tokens={usage.completion_tokens} total_tokens={usage.total_tokens}"
+            )
         summary = resp.choices[0].message.content.strip()
         logger.info(f"[LLM: {MODEL}] llm_summarize_cluster resp: {summary}")
         return summary
@@ -116,16 +121,21 @@ def llm_extract_topic(texts: list[str]) -> str:
     )
     logger.info(f"[LLM: {MODEL}] llm_extract_topic prompt: {prompt}")  # Debug
     messages = [
-        {"role": "system", "content": "あなたはコミュニティ参加者からの質問・投稿をとりまとめ、代表的なトピックを抽出するアシスタントです。"},
-        {"role": "user", "content": prompt}
+        {
+            "role": "system",
+            "content": "あなたはコミュニティ参加者からの質問・投稿をとりまとめ、代表的なトピックを抽出するアシスタントです。",
+        },
+        {"role": "user", "content": prompt},
     ]
     create_args = {"model": MODEL, "messages": messages}
     try:
         logger.info(f"[LLM: {MODEL}] llm_extract_topic req: {len(texts)} texts")
         resp = openai.chat.completions.create(**create_args)
-        usage = getattr(resp, 'usage', None)
+        usage = getattr(resp, "usage", None)
         if usage:
-            logger.info(f"[LLM: {MODEL}] llm_extract_topic usage prompt_tokens={usage.prompt_tokens} completion_tokens={usage.completion_tokens} total_tokens={usage.total_tokens}")
+            logger.info(
+                f"[LLM: {MODEL}] llm_extract_topic usage prompt_tokens={usage.prompt_tokens} completion_tokens={usage.completion_tokens} total_tokens={usage.total_tokens}"
+            )
         topic = resp.choices[0].message.content.strip()
         logger.info(f"[LLM: {MODEL}] llm_extract_topic resp: {topic}")
         return topic
@@ -137,6 +147,7 @@ def llm_extract_topic(texts: list[str]) -> str:
 
 # --- New functions for info request detection and extraction ---
 
+
 def llm_is_info_request(texts: list[str]) -> bool:
     """
     Check whether the given cluster of texts represents an information request.
@@ -144,27 +155,34 @@ def llm_is_info_request(texts: list[str]) -> bool:
     """
     prompt = (
         "以下の投稿は類似した投稿です。これら投稿は、コミュニティ参加者が、明確に何かを知りたい、何かを学びたいといった情報を求めるリクエストになっていかどうかを「はい」または「いいえ」で、それぞれ新しい行で回答してください。\n"
-        #"以下の投稿一覧に対し、各投稿が情報リクエストかどうかを「はい」または「いいえ」で、それぞれ新しい行で回答してください。\n"
+        # "以下の投稿一覧に対し、各投稿が情報リクエストかどうかを「はい」または「いいえ」で、それぞれ新しい行で回答してください。\n"
         "投稿一覧:\n"
         + "\n".join(f"- {t}" for t in texts)
     )
     logger.info(f"[LLM: {MODEL}] llm_is_info_request prompt")
     messages = [
-        {"role": "system", "content": "あなたはコミュニティに投稿されるコンテンツを分類するプロフェッショナルです。"},
-        {"role": "user", "content": prompt}
+        {
+            "role": "system",
+            "content": "あなたはコミュニティに投稿されるコンテンツを分類するプロフェッショナルです。",
+        },
+        {"role": "user", "content": prompt},
     ]
     try:
         resp = openai.chat.completions.create(model=MODEL, messages=messages)
-        usage = getattr(resp, 'usage', None)
+        usage = getattr(resp, "usage", None)
         if usage:
-            logger.info(f"[LLM: {MODEL}] llm_is_info_request usage prompt_tokens={usage.prompt_tokens} completion_tokens={usage.completion_tokens} total_tokens={usage.total_tokens}")
+            logger.info(
+                f"[LLM: {MODEL}] llm_is_info_request usage prompt_tokens={usage.prompt_tokens} completion_tokens={usage.completion_tokens} total_tokens={usage.total_tokens}"
+            )
         raw = resp.choices[0].message.content.strip()
         logger.info(f"[LLM: {MODEL}] llm_is_info_request raw: {raw}")
         lines = [line.strip() for line in raw.splitlines() if line.strip()]
         yes_count = sum(1 for line in lines if line.startswith("はい"))
         total = len(lines) if lines else len(texts)
         ratio = yes_count / total
-        logger.info(f"[LLM: {MODEL}] llm_is_info_request yes={yes_count}, total={total}, ratio={ratio:.2f}")
+        logger.info(
+            f"[LLM: {MODEL}] llm_is_info_request yes={yes_count}, total={total}, ratio={ratio:.2f}"
+        )
         return ratio >= 0.7
     except Exception as e:
         logger.warning(f"[LLM: {MODEL}] llm_is_info_request failed: {e}")
@@ -177,19 +195,23 @@ def llm_extract_info_request(texts: list[str]) -> str:
     """
     prompt = (
         "以下の投稿は情報を求めるリクエストです。何を知りたいか、何を学びたいのか、5〜8語のフレーズでまとめてください。"
-        " 投稿一覧:\n"
-        + "\n".join(f"- {t}" for t in texts)
+        " 投稿一覧:\n" + "\n".join(f"- {t}" for t in texts)
     )
     logger.info(f"[LLM: {MODEL}] llm_extract_info_request prompt")
     messages = [
-        {"role": "system", "content": "あなたはコミュニティ投稿から情報リクエストを抽出するプロフェッショナルです。"},
-        {"role": "user", "content": prompt}
+        {
+            "role": "system",
+            "content": "あなたはコミュニティ投稿から情報リクエストを抽出するプロフェッショナルです。",
+        },
+        {"role": "user", "content": prompt},
     ]
     try:
         resp = openai.chat.completions.create(model=MODEL, messages=messages)
-        usage = getattr(resp, 'usage', None)
+        usage = getattr(resp, "usage", None)
         if usage:
-            logger.info(f"[LLM: {MODEL}] llm_extract_info_request usage prompt_tokens={usage.prompt_tokens} completion_tokens={usage.completion_tokens} total_tokens={usage.total_tokens}")
+            logger.info(
+                f"[LLM: {MODEL}] llm_extract_info_request usage prompt_tokens={usage.prompt_tokens} completion_tokens={usage.completion_tokens} total_tokens={usage.total_tokens}"
+            )
         request = resp.choices[0].message.content.strip()
         logger.info(f"[LLM: {MODEL}] llm_extract_info_request resp: {request}")
         return request
@@ -198,7 +220,9 @@ def llm_extract_info_request(texts: list[str]) -> str:
         return ""
 
 
-def rag_answer(query: str, post_ids: list[int], db) -> tuple[Optional[str], Optional[str]]:
+def rag_answer(
+    query: str, post_ids: list[int], db
+) -> tuple[Optional[str], Optional[str]]:
     # Local RAG using FAQ JSONL
     logger.info(f"[RAG] local FAQ RAG for query='{query}', post_ids={post_ids}")
     # Ensure FAQ data and embeddings are loaded
@@ -238,8 +262,11 @@ def rag_answer(query: str, post_ids: list[int], db) -> tuple[Optional[str], Opti
         f"{context}"
     )
     messages = [
-        {"role": "system", "content": "あなたはコミュニティ参加者からの質問・回答をとりまとめるアシスタントです。"},
-        {"role": "user", "content": prompt}
+        {
+            "role": "system",
+            "content": "あなたはコミュニティ参加者からの質問・回答をとりまとめるアシスタントです。",
+        },
+        {"role": "user", "content": prompt},
     ]
     create_args = {"model": MODEL, "messages": messages}
     # Call the LLM
@@ -247,7 +274,9 @@ def rag_answer(query: str, post_ids: list[int], db) -> tuple[Optional[str], Opti
         resp_llm = openai.chat.completions.create(**create_args)
         usage = getattr(resp_llm, "usage", None)
         if usage:
-            logger.info(f"[LLM: {MODEL}] usage prompt_tokens={usage.prompt_tokens} completion_tokens={usage.completion_tokens} total_tokens={usage.total_tokens}")
+            logger.info(
+                f"[LLM: {MODEL}] usage prompt_tokens={usage.prompt_tokens} completion_tokens={usage.completion_tokens} total_tokens={usage.total_tokens}"
+            )
         answer = resp_llm.choices[0].message.content.strip()
         logger.info(f"[RAG] generated answer: {answer}")
         # Map raw source keys to display name + URL
@@ -279,27 +308,33 @@ def thread_answer(post_ids: list[int], db) -> tuple[str, None]:
     combined = "\n".join(f"- {r}" for r in all_replies)
     prompt = (
         "以下のコミュニティ参加者からの質問と返信を参考に、質問に対する有用な回答を1つの文章でまとめてください。\n"
-        f"質問: {question}\n"
-        + combined
+        f"質問: {question}\n" + combined
     )
     messages = [
-        {"role": "system", "content": "あなたはコミュニティ参加者からの質問・回答をとりまとめるアシスタントです。"},
-        {"role": "user", "content": prompt}
+        {
+            "role": "system",
+            "content": "あなたはコミュニティ参加者からの質問・回答をとりまとめるアシスタントです。",
+        },
+        {"role": "user", "content": prompt},
     ]
     create_args = {"model": MODEL, "messages": messages}
     # Always use max_tokens, choosing value by model type
-    #if MODEL.startswith("o4-"):
+    # if MODEL.startswith("o4-"):
     #    create_args["max_completion_tokens"] = DEFAULT_MAX_COMPLETION_TOKENS
-    #else:
+    # else:
     #    create_args["max_tokens"] = DEFAULT_MAX_TOKENS
 
     try:
-        logging.info(f"[LLM: {MODEL}] thread_answer req with {len(all_replies)} replies")
+        logging.info(
+            f"[LLM: {MODEL}] thread_answer req with {len(all_replies)} replies"
+        )
         resp = openai.chat.completions.create(**create_args)
         # Log token usage if available
-        usage = getattr(resp, 'usage', None)
+        usage = getattr(resp, "usage", None)
         if usage:
-            logger.info(f"[LLM: {MODEL}] usage prompt_tokens={usage.prompt_tokens} completion_tokens={usage.completion_tokens} total_tokens={usage.total_tokens}")
+            logger.info(
+                f"[LLM: {MODEL}] usage prompt_tokens={usage.prompt_tokens} completion_tokens={usage.completion_tokens} total_tokens={usage.total_tokens}"
+            )
         answer = resp.choices[0].message.content.strip()
         logger.info(f"[LLM: {MODEL}] thread_answer resp: {answer}")
         return answer, None
