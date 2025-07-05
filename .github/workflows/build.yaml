@@ -17,6 +17,7 @@ jobs:
       packages: write
       attestations: write
       id-token: write
+      security-events: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -35,6 +36,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
       - name: Ensure Python dependencies
         run: |
           pip install --upgrade pip setuptools
@@ -75,7 +80,7 @@ jobs:
       - name: Run Safety
         run: safety check --json > reports/safety.json
       - name: Upload Reports
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: dependency-reports
           path: reports/*.json
@@ -100,11 +105,14 @@ jobs:
   
   # 6. Build and push to  GitHub Container Registry (ghcr.io)
   build:
-    needs: setup
+    needs: [setup, lint, dependency_scan, codeql]
     runs-on: ubuntu-latest
     outputs:
       image-digest: ${{ steps.build_and_push.outputs.digest }}
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       # 6-1. Login to ghcr.or
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v2
@@ -132,9 +140,6 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64,linux/arm/v7
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
           tags: |
             ${{ steps.docker_meta_ghcr.outputs.tags }}
             ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:latest
