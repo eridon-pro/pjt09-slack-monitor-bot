@@ -172,7 +172,7 @@ jobs:
         uses: anchore/sbom-action@main
         with:
           image: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
-          registry-username: ${{ github.actor }}
+          registry-username: ${{ github.repository_owner }}
           registry-password: ${{ secrets.GITHUB_TOKEN }}
           format: cyclonedx-json
           output-file: sbom-${{ github.sha }}.json
