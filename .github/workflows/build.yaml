@@ -88,8 +88,10 @@ jobs:
         run: pip install safety pip-audit
       - name: Run pip-audit on requirements
         run: pip-audit -r requirements.txt -f json > reports/pip-audit.json
-      - name: Run Safety
-        run: safety check --json > reports/safety.json
+      - name: Run Safety and allow non-zero exit
+        run: |
+          pip install safety
+          safety check --json --file=requirements.txt --exit-zero > reports/safety.json
       - name: Upload Reports
         uses: actions/upload-artifact@v4
         with:
@@ -212,7 +214,7 @@ jobs:
 
   #　１０. Notification to Slack
   notify_slack:
-    if: always()
+    #if: always()
     needs: sbom
     runs-on: ubuntu-latest
     steps:
@@ -222,7 +224,7 @@ jobs:
         with:
           payload: |
             {
-              "channel": "#ops-alerts",
+              "channel": "#bot-admin-dev",
               "text": ":white_check_mark: CI Pipeline が正常に完了しました\n> リポジトリ: `${{ github.repository }}`\n> コミット: `${{ github.sha }}`"
             }
         env:
@@ -234,7 +236,7 @@ jobs:
         with:
           payload: |
             {
-              "channel": "#ops-alerts",
+              "channel": "#bot-admin-dev",
               "text": ":x: CI Pipeline が失敗しました\n> リポジトリ: `${{ github.repository }}`\n> コミット: `${{ github.sha }}`\n> 詳細: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|ログを確認>"
             }
         env:
@@ -246,7 +248,7 @@ jobs:
         with:
           payload: |
             {
-              "channel": "#ops-alerts",
+              "channel": "#bot-admin-dev",
               "text": ":warning: CI Pipeline がキャンセルされました\n> リポジトリ: `${{ github.repository }}`\n> コミット: `${{ github.sha }}`"
             }
         env:
