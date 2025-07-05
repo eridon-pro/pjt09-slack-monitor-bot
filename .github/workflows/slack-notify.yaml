@@ -1,4 +1,11 @@
+
 name: Slack Notify on CI Completion
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+  # Adjust permissions as needed for accessing secrets and running workflow_run triggers
+  secrets: read
 
 # "CI Pipeline with Security Check" ワークフローの完了を検知
 on:
