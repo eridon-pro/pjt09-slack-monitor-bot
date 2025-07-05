@@ -91,7 +91,8 @@ jobs:
       - name: Run Safety scan
         run: |
           pip install safety
-          safety scan -r requirements.txt --json > reports/safety.json
+          #safety check --json --file=requirements.txt > reports/safety.json
+          safety scan --output json --save-as reports/safety.json
       - name: Upload Reports
         uses: actions/upload-artifact@v4
         with:
