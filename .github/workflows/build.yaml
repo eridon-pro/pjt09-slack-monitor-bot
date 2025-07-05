@@ -1,5 +1,12 @@
 name: CI Pipeline with Security Check
 
+permissions:
+  contents: read
+  packages: write
+  attestations: write
+  id-token: write
+  security-events: write
+
 on:
   push:
     branches: [ main ]
@@ -40,6 +47,8 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: "3.12"
+      - name: Install lint tools
+        run: pip install black flake8
       - name: Ensure Python dependencies
         run: |
           pip install --upgrade pip setuptools
@@ -70,9 +79,9 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Prepare reports directory
         run: mkdir -p reports
-      - uses: actions/checkout@v4
       - name: Install audit tools
         run: pip install safety pip-audit
       - name: Run pip-audit
@@ -89,6 +98,8 @@ jobs:
   codeql:
     needs: setup
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
     steps:
       - uses: actions/checkout@v4
       - name: Initialize CodeQL
