@@ -171,9 +171,9 @@ jobs:
       - name: Generate SBOM with Anchore SBOM Action
         uses: anchore/sbom-action@main
         with:
-          image: ghcr.io/${{ github.repository }}:${{ github.sha }}
-          registry-username: ${{ github.actor }}
-          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          image: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          #registry-username: ${{ github.actor }}
+          #registry-password: ${{ secrets.GITHUB_TOKEN }}
           format: cyclonedx-json
           output-file: sbom-${{ github.sha }}.json
 
@@ -194,7 +194,7 @@ jobs:
       - name: Scan GHCR image with Trivy
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          image-ref: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
           format: json
           output: reports/ghcr-trivy-report.json
           exit-code: '1'
@@ -221,7 +221,7 @@ jobs:
 
       - name: Sign GHCR image with Cosign
         env:
-          IMAGE_URI: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          IMAGE_URI: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
           DIGEST: ${{ needs.build.outputs.image-digest }}
         run: cosign sign --yes ${IMAGE_URI}@${DIGEST}
   
