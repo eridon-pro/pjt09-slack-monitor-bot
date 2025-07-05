@@ -192,12 +192,12 @@ jobs:
           name: sbom
           path: sbom-${{ github.sha }}.json
 
-  # Notification to Slack
+  #　１０. Notification to Slack
   notify_slack:
     needs: sbom
     runs-on: ubuntu-latest
     steps:
-      - name: Slack: CI Success
+      - name: "Slack: CI Success"
         if: success()
         uses: slackapi/slack-github-action@v1.23.0
         with:
@@ -209,7 +209,7 @@ jobs:
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
-      - name: Slack: CI Failure
+      - name: "Slack: CI Failure"
         if: failure()
         uses: slackapi/slack-github-action@v1.23.0
         with:
@@ -221,7 +221,7 @@ jobs:
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
-      - name: Slack: CI Cancelled
+      - name: "Slack: CI Cancelled"
         if: cancelled()
         uses: slackapi/slack-github-action@v1.23.0
         with:
