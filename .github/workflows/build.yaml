@@ -160,9 +160,47 @@ jobs:
             ${{ steps.docker_meta_ghcr.outputs.tags }}
             ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:latest
   
-  # 7. Signing by Cosign with OIDC token
-  signing:
+# 7. SBOM の生成（Anchore sbom-action を利用）とアップロード
+  sbom:
     needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare workspace
+        run: mkdir -p reports
+      - name: Generate SBOM with Anchore SBOM Action
+        uses: anchore/sbom-action@main
+        with:
+          image: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:${{ github.sha }}
+          output_format: cyclonedx-json
+          output_file: sbom-${{ github.sha }}.json
+
+      - name: Upload SBOM Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: sbom
+          path: sbom-${{ github.sha }}.json
+
+
+  # 8. Container Image Scan by Trivy
+  image_scan:
+    needs: sbom
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare reports directory
+        run: mkdir -p reports
+      - name: Scan GHCR image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          #image-ref: ghcr.io/${{ github.repository }}
+          image-ref: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:${{ github.sha }}
+          format: json
+          output: reports/ghcr-trivy-report.json
+          exit-code: '1'
+          severity: HIGH,CRITICAL
+
+  # 9. Signing by Cosign with OIDC token
+  signing:
+    needs: image_scan
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -185,81 +223,3 @@ jobs:
           DIGEST: ${{ needs.build.outputs.image-digest }}
         run: cosign sign --yes ${IMAGE_URI}@${DIGEST}
   
-  # 8. Container Image Scan by Trivy
-  image_scan:
-    needs: signing
-    runs-on: ubuntu-latest
-    steps:
-      - name: Prepare reports directory
-        run: mkdir -p reports
-      - name: Scan GHCR image with Trivy
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ghcr.io/${{ github.repository }}
-          scan-type: remote
-          format: json
-          output: reports/ghcr-trivy-report.json
-          exit-code: '1'
-          severity: HIGH,CRITICAL
-
-  # 9. SBOM の生成（Anchore sbom-action を利用）とアップロード
-  sbom:
-    needs: image_scan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Prepare workspace
-        run: mkdir -p reports
-      - name: Generate SBOM with Anchore SBOM Action
-        uses: anchore/sbom-action@main
-        with:
-          image: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:${{ github.sha }}
-          output_format: cyclonedx-json
-          output_file: sbom-${{ github.sha }}.json
-
-      - name: Upload SBOM Artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: sbom
-          path: sbom-${{ github.sha }}.json
-
-  ##　１０. Notification to Slack
-  #notify_slack:
-  #  #needs: build
-  #  #if: always()
-  #  runs-on: ubuntu-latest
-  #  steps:
-  #    - name: "Slack: CI Success"
-  #      if: ${{ job.status == 'success' }}
-  #      uses: slackapi/slack-github-action@v1.23.0
-  #      with:
-  #        payload: |
-  #          {
-  #            "channel": "#bot-admin-dev",
-  #            "text": ":white_check_mark: CI Pipeline が正常に完了しました\n> リポジトリ: `${{ github.repository }}`\n> コミット: `${{ github.sha }}`"
-  #          }
-  #      env:
-  #        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-
-  #    - name: "Slack: CI Failure"
-  #      if: ${{ job.status == 'failure' }}
-  #      uses: slackapi/slack-github-action@v1.23.0
-  #      with:
-  #        payload: |
-  #          {
-  #            "channel": "#bot-admin-dev",
-  #            "text": ":x: CI Pipeline が失敗しました\n> リポジトリ: `${{ github.repository }}`\n> コミット: `${{ github.sha }}`\n> 詳細: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|ログを確認>"
-  #          }
-  #      env:
-  #        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-
-  #    - name: "Slack: CI Cancelled"
-  #      if: ${{ job.status == 'cancelled' }}
-  #      uses: slackapi/slack-github-action@v1.23.0
-  #      with:
-  #        payload: |
-  #          {
-  #            "channel": "#bot-admin-dev",
-  #            "text": ":warning: CI Pipeline がキャンセルされました\n> リポジトリ: `${{ github.repository }}`\n> コミット: `${{ github.sha }}`"
-  #          }
-  #      env:
-  #        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

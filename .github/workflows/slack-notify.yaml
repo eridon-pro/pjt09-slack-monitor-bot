@@ -5,7 +5,6 @@ permissions:
   actions: read
   id-token: write
   # Adjust permissions as needed for accessing secrets and running workflow_run triggers
-  secrets: read
 
 # "CI Pipeline with Security Check" ワークフローの完了を検知
 on:
@@ -18,21 +17,27 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
-      - name: Send Slack notification
+      - name: Slack: CI Success
+        if: ${{ github.event.workflow_run.conclusion == 'success' }}
         uses: slackapi/slack-github-action@v1.23.0
         with:
-          payload: |
-            {{
-              "channel": "#bot-admin-dev",
-              "text": ${{ 
-                github.event.workflow_run.conclusion == 'success' && ":white_check_mark: CI Pipeline が正常に完了しました\n" ||
-                github.event.workflow_run.conclusion == 'failure' && ":x: CI Pipeline が失敗しました\n" ||
-                github.event.workflow_run.conclusion == 'cancelled' && ":warning: CI Pipeline がキャンセルされました\n"
-              }}\
-              > リポジトリ: `${{ github.repository }}`\n\
-              > ワークフロー: `${{ github.event.workflow_run.name }}`\n\
-              > コミット: `${{ github.event.workflow_run.head_sha }}`
-            }}
+          payload: '{"channel":"#bot-admin-dev","text":"✅ CI Pipeline が正常に完了しました\nリポジトリ: ${{ github.repository }}\nコミット: ${{ github.event.workflow_run.head_sha }}"}'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Slack: CI Failure
+        if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: '{"channel":"#bot-admin-dev","text":"❌ CI Pipeline が失敗しました\nリポジトリ: ${{ github.repository }}\nコミット: ${{ github.event.workflow_run.head_sha }}\n詳細: ${{ github.event.workflow_run.html_url }}"}'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Slack: CI Cancelled
+        if: ${{ github.event.workflow_run.conclusion == 'cancelled' }}
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: '{"channel":"#bot-admin-dev","text":"⚠️ CI Pipeline がキャンセルされました\nリポジトリ: ${{ github.repository }}\nコミット: ${{ github.event.workflow_run.head_sha }}"}'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           
