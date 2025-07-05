@@ -172,6 +172,13 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@main
 
+      - name: Login to GitHub Container Registry for Cosign
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Sign GHCR image with Cosign
         env:
           IMAGE_URI: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:${{ github.sha }}
@@ -214,44 +221,44 @@ jobs:
           name: sbom
           path: sbom-${{ github.sha }}.json
 
-  #　１０. Notification to Slack
-  notify_slack:
-    #needs: build
-    #if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: "Slack: CI Success"
-        if: ${{ job.status == 'success' }}
-        uses: slackapi/slack-github-action@v1.23.0
-        with:
-          payload: |
-            {
-              "channel": "#bot-admin-dev",
-              "text": ":white_check_mark: CI Pipeline が正常に完了しました\n> リポジトリ: `${{ github.repository }}`\n> コミット: `${{ github.sha }}`"
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  ##　１０. Notification to Slack
+  #notify_slack:
+  #  #needs: build
+  #  #if: always()
+  #  runs-on: ubuntu-latest
+  #  steps:
+  #    - name: "Slack: CI Success"
+  #      if: ${{ job.status == 'success' }}
+  #      uses: slackapi/slack-github-action@v1.23.0
+  #      with:
+  #        payload: |
+  #          {
+  #            "channel": "#bot-admin-dev",
+  #            "text": ":white_check_mark: CI Pipeline が正常に完了しました\n> リポジトリ: `${{ github.repository }}`\n> コミット: `${{ github.sha }}`"
+  #          }
+  #      env:
+  #        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
-      - name: "Slack: CI Failure"
-        if: ${{ job.status == 'failure' }}
-        uses: slackapi/slack-github-action@v1.23.0
-        with:
-          payload: |
-            {
-              "channel": "#bot-admin-dev",
-              "text": ":x: CI Pipeline が失敗しました\n> リポジトリ: `${{ github.repository }}`\n> コミット: `${{ github.sha }}`\n> 詳細: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|ログを確認>"
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  #    - name: "Slack: CI Failure"
+  #      if: ${{ job.status == 'failure' }}
+  #      uses: slackapi/slack-github-action@v1.23.0
+  #      with:
+  #        payload: |
+  #          {
+  #            "channel": "#bot-admin-dev",
+  #            "text": ":x: CI Pipeline が失敗しました\n> リポジトリ: `${{ github.repository }}`\n> コミット: `${{ github.sha }}`\n> 詳細: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|ログを確認>"
+  #          }
+  #      env:
+  #        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
-      - name: "Slack: CI Cancelled"
-        if: ${{ job.status == 'cancelled' }}
-        uses: slackapi/slack-github-action@v1.23.0
-        with:
-          payload: |
-            {
-              "channel": "#bot-admin-dev",
-              "text": ":warning: CI Pipeline がキャンセルされました\n> リポジトリ: `${{ github.repository }}`\n> コミット: `${{ github.sha }}`"
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  #    - name: "Slack: CI Cancelled"
+  #      if: ${{ job.status == 'cancelled' }}
+  #      uses: slackapi/slack-github-action@v1.23.0
+  #      with:
+  #        payload: |
+  #          {
+  #            "channel": "#bot-admin-dev",
+  #            "text": ":warning: CI Pipeline がキャンセルされました\n> リポジトリ: `${{ github.repository }}`\n> コミット: `${{ github.sha }}`"
+  #          }
+  #      env:
+  #        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

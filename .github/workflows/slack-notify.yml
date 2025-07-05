@@ -1,0 +1,31 @@
+name: Slack Notify on CI Completion
+
+# "CI Pipeline with Security Check" ワークフローの完了を検知
+on:
+  workflow_run:
+    workflows: ["CI Pipeline with Security Check"]
+    types:
+      - completed
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: |
+            {{
+              "channel": "#bot-admin-dev",
+              "text": ${{ 
+                github.event.workflow_run.conclusion == 'success' && ":white_check_mark: CI Pipeline が正常に完了しました\n" ||
+                github.event.workflow_run.conclusion == 'failure' && ":x: CI Pipeline が失敗しました\n" ||
+                github.event.workflow_run.conclusion == 'cancelled' && ":warning: CI Pipeline がキャンセルされました\n"
+              }}\
+              > リポジトリ: `${{ github.repository }}`\n\
+              > ワークフロー: `${{ github.event.workflow_run.name }}`\n\
+              > コミット: `${{ github.event.workflow_run.head_sha }}`
+            }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          
