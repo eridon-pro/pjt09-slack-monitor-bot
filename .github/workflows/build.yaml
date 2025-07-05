@@ -88,10 +88,10 @@ jobs:
         run: pip install safety pip-audit
       - name: Run pip-audit on requirements
         run: pip-audit -r requirements.txt -f json > reports/pip-audit.json
-      - name: Run Safety
+      - name: Run Safety scan
         run: |
           pip install safety
-          safety check --json --file=requirements.txt > reports/safety.json
+          safety scan -r requirements.txt --json > reports/safety.json
       - name: Upload Reports
         uses: actions/upload-artifact@v4
         with:
@@ -170,8 +170,9 @@ jobs:
       - name: Generate SBOM with Anchore SBOM Action
         uses: anchore/sbom-action@main
         with:
-          #image: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:${{ github.sha }}
           image: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
           format: cyclonedx-json
           output-file: sbom-${{ github.sha }}.json
 
@@ -192,8 +193,6 @@ jobs:
       - name: Scan GHCR image with Trivy
         uses: aquasecurity/trivy-action@master
         with:
-          #image-ref: ghcr.io/${{ github.repository }}
-          #image-ref: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:${{ github.sha }}
           image-ref: ghcr.io/${{ github.repository }}:${{ github.sha }}
           format: json
           output: reports/ghcr-trivy-report.json
@@ -221,7 +220,6 @@ jobs:
 
       - name: Sign GHCR image with Cosign
         env:
-          #IMAGE_URI: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:${{ github.sha }}
           IMAGE_URI: ghcr.io/${{ github.repository }}:${{ github.sha }}
           DIGEST: ${{ needs.build.outputs.image-digest }}
         run: cosign sign --yes ${IMAGE_URI}@${DIGEST}
