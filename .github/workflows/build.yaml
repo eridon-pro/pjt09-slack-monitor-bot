@@ -86,8 +86,8 @@ jobs:
         run: mkdir -p reports
       - name: Install audit tools
         run: pip install safety pip-audit
-      - name: Run pip-audit
-        run: pip-audit -f json . > reports/pip-audit.json
+      - name: Run pip-audit on requirements
+        run: pip-audit -r requirements.txt -f json > reports/pip-audit.json
       - name: Run Safety
         run: safety check --json > reports/safety.json
       - name: Upload Reports
@@ -212,6 +212,7 @@ jobs:
 
   #　１０. Notification to Slack
   notify_slack:
+    if: always()
     needs: sbom
     runs-on: ubuntu-latest
     steps:
