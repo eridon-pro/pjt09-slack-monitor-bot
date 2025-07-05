@@ -88,11 +88,11 @@ jobs:
         run: pip install safety pip-audit
       - name: Run pip-audit on requirements
         run: pip-audit -r requirements.txt -f json > reports/pip-audit.json
-      - #name: Run Safety scan
-        #run: |
-        #  pip install safety
-        #  safety check --json --file=requirements.txt > reports/safety.json
-        #  #safety scan --output json --save-as json reports/safety.json  # Required authentication
+      #- name: Run Safety scan
+      #  run: |
+      #    pip install safety
+      #    safety check --json --file=requirements.txt > reports/safety.json
+      #    #safety scan --output json --save-as json reports/safety.json  # Required authentication
       - name: Upload Reports
         uses: actions/upload-artifact@v4
         with:
