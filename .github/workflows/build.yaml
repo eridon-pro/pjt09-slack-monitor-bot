@@ -169,10 +169,14 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@main
+
       - name: Sign GHCR image with Cosign
-        uses: sigstore/cosign-action@v2
-        with:
-          image: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:${{ github.sha }}
+        env:
+          IMAGE_URI: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:${{ github.sha }}
+          DIGEST: ${{ needs.build.outputs.image-digest }}
+        run: cosign sign --yes ${IMAGE_URI}@${DIGEST}
   
   # 8. Container Image Scan by Trivy
   image_scan:
@@ -212,7 +216,8 @@ jobs:
 
   #　１０. Notification to Slack
   notify_slack:
-    if: always()
+    #needs: build
+    #if: always()
     runs-on: ubuntu-latest
     steps:
       - name: "Slack: CI Success"
