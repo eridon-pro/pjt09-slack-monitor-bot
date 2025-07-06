@@ -187,7 +187,8 @@ jobs:
 
   # 8. Container Image Scan by Trivy
   image_scan:
-    needs: sbom
+    #needs: sbom
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Prepare reports directory
@@ -203,8 +204,8 @@ jobs:
 
   # 9. Signing by Cosign with OIDC token
   signing:
-    #needs: image_scan
-    needs: build
+    needs: image_scan
+    #needs: build
     runs-on: ubuntu-latest
     permissions:
       id-token: write
