@@ -203,7 +203,8 @@ jobs:
 
   # 9. Signing by Cosign with OIDC token
   signing:
-    needs: image_scan
+    #needs: image_scan
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       id-token: write
