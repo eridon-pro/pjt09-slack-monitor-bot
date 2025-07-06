@@ -195,10 +195,10 @@ jobs:
         run: mkdir -p reports
       - name: Scan GHCR image with Trivy
         uses: aquasecurity/trivy-action@master
+        #uses: aquasecurity/trivy-action@0.30.0
         with:
           #image-ref: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
           image-ref: ghcr.io/${{ github.repository }}:${{ github.sha }}
-          #scan-type: remote
           #github-pat: ${{ secrets.GITHUB_TOKEN }}
           format: table
           #format: json
