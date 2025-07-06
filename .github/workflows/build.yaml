@@ -196,11 +196,9 @@ jobs:
       - name: Scan GHCR image with Trivy
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
-          #image-ref: ghcr.io/${{ github.repository }}:${{ github.sha }}
-          #scan-type: remote
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          image-ref: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          scan-type: remote
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
           format: json
           output: reports/ghcr-trivy-report.json
           exit-code: '1'
@@ -208,8 +206,8 @@ jobs:
 
   # 9. Signing by Cosign with OIDC token
   signing:
-    #needs: image_scan
-    needs: build
+    needs: image_scan
+    #needs: build
     runs-on: ubuntu-latest
     permissions:
       id-token: write
