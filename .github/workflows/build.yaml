@@ -145,7 +145,8 @@ jobs:
       - id: docker_meta_ghcr
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}
+          #images: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}
+          images: ghcr.io/${{ github.repository }}
           tags: type=sha,format=long
 
       # 6-4. Docker image build and push with SHA ＆ latest tag
@@ -159,7 +160,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: |
             ${{ steps.docker_meta_ghcr.outputs.tags }}
-            ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:latest
   
 # 7. SBOM の生成（Anchore sbom-action を利用）とアップロード
   #sbom:
