@@ -171,7 +171,8 @@ jobs:
       - name: Generate SBOM with Anchore SBOM Action
         uses: anchore/sbom-action@main
         with:
-          image: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          #image: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          image: ghcr.io/${{ github.repository }}:${{ github.sha }}
           registry-username: ${{ github.repository_owner }}
           registry-password: ${{ secrets.GITHUB_TOKEN }}
           format: cyclonedx-json
