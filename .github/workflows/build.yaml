@@ -218,17 +218,17 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@main
 
-      - name: Login to GitHub Container Registry for Cosign
-        uses: docker/login-action@v2
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      #- name: Login to GitHub Container Registry for Cosign
+      #  uses: docker/login-action@v2
+      #  with:
+      #    registry: ghcr.io
+      #    username: ${{ github.actor }}
+      #    password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Sign GHCR image with Cosign
         env:
-          #IMAGE_URI: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
-          IMAGE_URI: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          IMAGE_URI: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          #IMAGE_URI: ghcr.io/${{ github.repository }}:${{ github.sha }}
           DIGEST: ${{ needs.build.outputs.image-digest }}
           #DIGEST: ${{ steps.build-and-push.outputs.digest }}
         run: cosign sign --yes ${IMAGE_URI}@${DIGEST}
