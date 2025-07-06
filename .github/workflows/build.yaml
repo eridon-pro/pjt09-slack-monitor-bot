@@ -162,51 +162,51 @@ jobs:
             ${{ steps.docker_meta_ghcr.outputs.tags }}
             ghcr.io/${{ github.repository }}:latest
   
-# 7. SBOM の生成（Anchore sbom-action を利用）とアップロード
-  #sbom:
-  #  needs: build
-  #  runs-on: ubuntu-latest
-  #  steps:
-  #    - name: Prepare workspace
-  #      run: mkdir -p reports
-  #    - name: Generate SBOM with Anchore SBOM Action
-  #      uses: anchore/sbom-action@main
-  #      with:
-  #        #image: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
-  #        image: ghcr.io/${{ github.repository }}:${{ github.sha }}
-  #        registry-username: ${{ github.repository_owner }}
-  #        registry-password: ${{ secrets.GITHUB_TOKEN }}
-  #        format: cyclonedx-json
-  #        output-file: sbom-${{ github.sha }}.json
+  # 7. SBOM の生成（Anchore sbom-action を利用）とアップロード
+  sbom:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare workspace
+        run: mkdir -p reports
+      - name: Generate SBOM with Anchore SBOM Action
+        uses: anchore/sbom-action@main
+        with:
+          image: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          #image: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          registry-username: ${{ github.repository_owner }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          format: cyclonedx-json
+          output-file: sbom-sha-${{ github.sha }}.json
 
-  #    - name: Upload SBOM Artifact
-  #      uses: actions/upload-artifact@v4
-  #      with:
-  #        name: sbom
-  #        path: sbom-${{ github.sha }}.json
+      - name: Upload SBOM Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom-sha-${{ github.sha }}.json
 
 
   # 8. Container Image Scan by Trivy
-  #image_scan:
-  #  #needs: sbom
-  #  needs: build
-  #  runs-on: ubuntu-latest
-  #  steps:
-  #    - name: Prepare reports directory
-  #      run: mkdir -p reports
-  #    - name: Scan GHCR image with Trivy
-  #      uses: aquasecurity/trivy-action@master
-  #      #uses: aquasecurity/trivy-action@0.30.0
-  #      with:
-  #        #image-ref: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
-  #        image-ref: ghcr.io/${{ github.repository }}:${{ github.sha }}
-  #        #github-pat: ${{ secrets.GITHUB_TOKEN }}
-  #        format: table
-  #        #format: json
-  #        #output: reports/ghcr-trivy-report.json
-  #        exit-code: '1'
-  #        ignore-unfixed: true
-  #        severity: HIGH,CRITICAL
+  image_scan:
+    needs: sbom
+    #needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare reports directory
+        run: mkdir -p reports
+      - name: Scan GHCR image with Trivy
+        uses: aquasecurity/trivy-action@master
+        #uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          #image-ref: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          #github-pat: ${{ secrets.GITHUB_TOKEN }}
+          format: table
+          #format: json
+          #output: reports/ghcr-trivy-report.json
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
 
   # 9. Signing by Cosign with OIDC token
   #signing:
