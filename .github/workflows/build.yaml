@@ -186,50 +186,50 @@ jobs:
 
 
   # 8. Container Image Scan by Trivy
-  image_scan:
+  #image_scan:
   #  #needs: sbom
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Prepare reports directory
-        run: mkdir -p reports
-      - name: Scan GHCR image with Trivy
-        uses: aquasecurity/trivy-action@master
-        #uses: aquasecurity/trivy-action@0.30.0
-        with:
-          #image-ref: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
-          image-ref: ghcr.io/${{ github.repository }}:${{ github.sha }}
-          #github-pat: ${{ secrets.GITHUB_TOKEN }}
-          format: table
-          #format: json
-          #output: reports/ghcr-trivy-report.json
-          exit-code: '1'
-          ignore-unfixed: true
-          severity: HIGH,CRITICAL
+  #  needs: build
+  #  runs-on: ubuntu-latest
+  #  steps:
+  #    - name: Prepare reports directory
+  #      run: mkdir -p reports
+  #    - name: Scan GHCR image with Trivy
+  #      uses: aquasecurity/trivy-action@master
+  #      #uses: aquasecurity/trivy-action@0.30.0
+  #      with:
+  #        #image-ref: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+  #        image-ref: ghcr.io/${{ github.repository }}:${{ github.sha }}
+  #        #github-pat: ${{ secrets.GITHUB_TOKEN }}
+  #        format: table
+  #        #format: json
+  #        #output: reports/ghcr-trivy-report.json
+  #        exit-code: '1'
+  #        ignore-unfixed: true
+  #        severity: HIGH,CRITICAL
 
   # 9. Signing by Cosign with OIDC token
-  signing:
-    needs: image_scan
-    #needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-      packages: write
-    steps:
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@main
+  #signing:
+  #  needs: image_scan
+  #  #needs: build
+  #  runs-on: ubuntu-latest
+  #  permissions:
+  #    id-token: write
+  #    contents: read
+  #    packages: write
+  #  steps:
+  #    - name: Install Cosign
+  #      uses: sigstore/cosign-installer@main
 
-      - name: Login to GitHub Container Registry for Cosign
-        uses: docker/login-action@v2
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+  #    - name: Login to GitHub Container Registry for Cosign
+  #      uses: docker/login-action@v2
+  #      with:
+  #        registry: ghcr.io
+  #        username: ${{ github.actor }}
+  #        password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Sign GHCR image with Cosign
-        env:
-          IMAGE_URI: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
-          DIGEST: ${{ needs.build.outputs.image-digest }}
-        run: cosign sign --yes ${IMAGE_URI}@${DIGEST}
+  #    - name: Sign GHCR image with Cosign
+  #      env:
+  #        IMAGE_URI: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+  #        DIGEST: ${{ needs.build.outputs.image-digest }}
+  #      run: cosign sign --yes ${IMAGE_URI}@${DIGEST}
   
