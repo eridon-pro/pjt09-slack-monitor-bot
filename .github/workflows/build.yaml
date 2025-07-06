@@ -186,21 +186,25 @@ jobs:
 
 
   # 8. Container Image Scan by Trivy
-  #image_scan:
+  image_scan:
   #  #needs: sbom
-  #  needs: build
-  #  runs-on: ubuntu-latest
-  #  steps:
-  #    - name: Prepare reports directory
-  #      run: mkdir -p reports
-  #    - name: Scan GHCR image with Trivy
-  #      uses: aquasecurity/trivy-action@master
-  #      with:
-  #        image-ref: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
-  #        format: json
-  #        output: reports/ghcr-trivy-report.json
-  #        exit-code: '1'
-  #        severity: HIGH,CRITICAL
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare reports directory
+        run: mkdir -p reports
+      - name: Scan GHCR image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          #image-ref: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          #scan-type: remote
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          format: json
+          output: reports/ghcr-trivy-report.json
+          exit-code: '1'
+          severity: HIGH,CRITICAL
 
   # 9. Signing by Cosign with OIDC token
   signing:
