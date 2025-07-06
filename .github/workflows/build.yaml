@@ -172,8 +172,6 @@ jobs:
         uses: anchore/sbom-action@main
         with:
           image: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
-          #registry-username: ${{ github.repository_owner }}
-          #registry-password: ${{ secrets.GITHUB_TOKEN }}
           format: cyclonedx-json
           output-file: sbom-sha-${{ github.sha }}.json
 
@@ -195,14 +193,18 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
-          #image-ref: ghcr.io/${{ github.repository }}:${{ github.sha }}
-          #github-pat: ${{ secrets.GITHUB_TOKEN }}
           #format: table
           format: json
           output: reports/ghcr-trivy-report.json
           exit-code: '1'
           ignore-unfixed: true
           severity: HIGH,CRITICAL
+
+      - name: Upload Scan Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghcr-trivy-report
+          path: reports/ghcr-trivy-report.json
 
   # 9. Signing by Cosign with OIDC token
   signing:
@@ -225,7 +227,9 @@ jobs:
 
       - name: Sign GHCR image with Cosign
         env:
-          IMAGE_URI: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          #IMAGE_URI: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          IMAGE_URI: ghcr.io/${{ github.repository }}:${{ github.sha }}
           DIGEST: ${{ needs.build.outputs.image-digest }}
+          #DIGEST: ${{ steps.build-and-push.outputs.digest }}
         run: cosign sign --yes ${IMAGE_URI}@${DIGEST}
   
