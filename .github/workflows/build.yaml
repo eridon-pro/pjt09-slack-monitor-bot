@@ -162,27 +162,27 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:latest
   
 # 7. SBOM の生成（Anchore sbom-action を利用）とアップロード
-  sbom:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Prepare workspace
-        run: mkdir -p reports
-      - name: Generate SBOM with Anchore SBOM Action
-        uses: anchore/sbom-action@main
-        with:
-          #image: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
-          image: ghcr.io/${{ github.repository }}:${{ github.sha }}
-          registry-username: ${{ github.repository_owner }}
-          registry-password: ${{ secrets.GITHUB_TOKEN }}
-          format: cyclonedx-json
-          output-file: sbom-${{ github.sha }}.json
+  #sbom:
+  #  needs: build
+  #  runs-on: ubuntu-latest
+  #  steps:
+  #    - name: Prepare workspace
+  #      run: mkdir -p reports
+  #    - name: Generate SBOM with Anchore SBOM Action
+  #      uses: anchore/sbom-action@main
+  #      with:
+  #        #image: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+  #        image: ghcr.io/${{ github.repository }}:${{ github.sha }}
+  #        registry-username: ${{ github.repository_owner }}
+  #        registry-password: ${{ secrets.GITHUB_TOKEN }}
+  #        format: cyclonedx-json
+  #        output-file: sbom-${{ github.sha }}.json
 
-      - name: Upload SBOM Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sbom
-          path: sbom-${{ github.sha }}.json
+  #    - name: Upload SBOM Artifact
+  #      uses: actions/upload-artifact@v4
+  #      with:
+  #        name: sbom
+  #        path: sbom-${{ github.sha }}.json
 
 
   # 8. Container Image Scan by Trivy
