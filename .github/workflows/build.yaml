@@ -198,9 +198,10 @@ jobs:
         with:
           image-ref: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
           #scan-type: remote
-          github-pat: ${{ secrets.GITHUB_TOKEN }}
-          format: json
-          output: reports/ghcr-trivy-report.json
+          #github-pat: ${{ secrets.GITHUB_TOKEN }}
+          format: table
+          #format: json
+          #output: reports/ghcr-trivy-report.json
           exit-code: '1'
           ignore-unfixed: true
           severity: HIGH,CRITICAL
