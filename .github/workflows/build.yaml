@@ -228,7 +228,6 @@ jobs:
       - name: Sign GHCR image with Cosign
         env:
           IMAGE_URI: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
-          #IMAGE_URI: ghcr.io/${{ github.repository }}:${{ github.sha }}
           DIGEST: ${{ needs.build.outputs.image-digest }}
         run: cosign sign --yes ${IMAGE_URI}@${DIGEST}
   
